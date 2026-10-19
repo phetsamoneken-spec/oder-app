@@ -70,14 +70,24 @@
     </script>
 
     <!-- React 18, ReactDOM & Babel -->
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin="anonymous"></script>
 
     <!-- Leaflet JS, Confetti & Tone.js -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.4/dist/confetti.browser.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.4/dist/confetti.browser.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js" crossorigin="anonymous"></script>
+
+    <script>
+      // Global error safeguard to capture and display clean error feedback instead of blank script errors
+      window.addEventListener('error', function(e) {
+        if (e.message && e.message.includes('Script error')) {
+          console.warn('Recovered from cross-origin script error:', e);
+          e.preventDefault && e.preventDefault();
+        }
+      });
+    </script>
 
     <style>
       body {
@@ -151,6 +161,7 @@
       // Google Sheet ID ທີ່ກຳນົດ
       const TARGET_SHEET_ID = '12CV_NOtFAsj9xZ6LnzzEqi5PjbPPVegOpFOC9B8m7gY';
       const GOOGLE_SHEET_URL = `https://docs.google.com/spreadsheets/d/${TARGET_SHEET_ID}/edit`;
+      const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyQZms_ORK3pN_bHs_ijwG2xfdRKsCDE979IMcMG2j0xjllxa_VljBK-oVL-JI_LeiH/exec';
 
       // ປ່ຽນ Base64 Data URL ເປັນ File Object ສຳລັບສົ່ງເຂົ້າ WhatsApp ໂດຍກົງ
       function dataURLtoFile(dataurl, filename) {
@@ -183,7 +194,7 @@
         }
 
         // 2. ຖ້າ Run ແບບ Standalone ຫຼື ຜ່ານ External Browser URL
-        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || '';
+        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL;
         if (!scriptUrl) {
           return { success: false, reason: 'NO_SCRIPT_URL' };
         }
@@ -192,7 +203,7 @@
           await fetch(scriptUrl, {
             method: 'POST',
             mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({
               action: 'saveOrder',
               sheetId: TARGET_SHEET_ID,
@@ -218,14 +229,14 @@
           });
         }
 
-        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || '';
+        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL;
         if (!scriptUrl) return { success: false };
 
         try {
           await fetch(scriptUrl, {
             method: 'POST',
             mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({
               action: 'update_status',
               sheetId: TARGET_SHEET_ID,
@@ -251,7 +262,7 @@
           });
         }
 
-        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || '';
+        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL;
         if (!scriptUrl) {
           return { success: false, reason: 'NO_SCRIPT_URL' };
         }
@@ -260,7 +271,7 @@
           await fetch(scriptUrl, {
             method: 'POST',
             mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({
               action: 'save_cashiers',
               sheetId: TARGET_SHEET_ID,
@@ -269,7 +280,41 @@
           });
           return { success: true };
         } catch (err) {
-          console.warn('Cashiers Sheet Sync Error:', err);
+          console.warn('Google Sheet Cashiers Sync Error:', err);
+          return { success: false, error: err };
+        }
+      }
+
+      // Helper function ສຳລັບບັນທຶກ ແລະ ອັບເດດລາຍການເມນູລົງ Google Sheet ແທັບ Menu
+      async function syncProductsToGoogleSheet(productsList, customScriptUrl) {
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          return new Promise((resolve) => {
+            google.script.run
+              .withSuccessHandler((res) => resolve({ success: true, result: res }))
+              .withFailureHandler((err) => resolve({ success: false, error: err }))
+              .saveProductsFromClient(productsList);
+          });
+        }
+
+        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL;
+        if (!scriptUrl) {
+          return { success: false, reason: 'NO_SCRIPT_URL' };
+        }
+
+        try {
+          await fetch(scriptUrl, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'save_products',
+              sheetId: TARGET_SHEET_ID,
+              products: productsList,
+            }),
+          });
+          return { success: true };
+        } catch (err) {
+          console.warn('Google Sheet Products Sync Error:', err);
           return { success: false, error: err };
         }
       }
@@ -761,8 +806,8 @@
 
       const GoogleSheetModal = ({ isOpen, onClose, onShowToast, onSyncAll }) => {
         const isNativeGas = typeof google !== 'undefined' && !!(google.script && google.script.run);
-        const [gasUrl, setGasUrl] = useState(() => localStorage.getItem('lao_pos_gas_url') || '');
-        const [status, setStatus] = useState(isNativeGas ? 'connected' : 'ready');
+        const [gasUrl, setGasUrl] = useState(() => localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL);
+        const [status, setStatus] = useState(isNativeGas ? 'connected' : (localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL ? 'connected' : 'ready'));
         const [isTesting, setIsTesting] = useState(false);
 
         if (!isOpen) return null;
@@ -886,18 +931,41 @@
               )}
 
               {/* Setup guide */}
-              <div className="bg-[#faf8ff] p-3 rounded-2xl border border-gray-100 flex flex-col gap-1.5 text-[11px] text-gray-600">
+              <div className="bg-[#faf8ff] p-3 rounded-2xl border border-gray-100 flex flex-col gap-2 text-[11px] text-gray-600">
                 <span className="font-bold text-[#0f9d58] flex items-center gap-1">
                   <span className="material-symbols-outlined text-[15px]">tips_and_updates</span>
-                  <span>ວິທີນຳ Code ໄປລົງ Apps Script:</span>
+                  <span>ວິທີສ້າງ 3 ຕາຕະລາງ (Orders, Cashiers, Menu) ໃນ Google Sheet:</span>
                 </span>
-                <p className="leading-snug">
-                  1. ເປີດ Google Sheet ຂອງທ່ານ ແລ້ວກົດເມນູ <strong>ສ່ວນຂະຫຍາຍ (Extensions) &gt; Apps Script</strong><br />
-                  2. ນຳ Code ຈາກໄຟລ໌ <code>Code.gs</code> ໄປວາງໃສ່ແລ້ວກົດ Save.<br />
-                  3. ກົດ <strong>Deploy &gt; New deployment &gt; Web app</strong> (ເລືອກ Who has access: <em>Anyone</em>).<br />
-                  4. ລະບົບຈະສ້າງແທັບ <strong>Orders</strong> (ອໍເດີ) ແລະ ແທັບ <strong>Cashiers</strong> (ພະນັກງານເກັບເງິນ) ໃຫ້ອັດຕະໂນມັດ!
-                </p>
+                <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200 text-amber-900 text-[11px] leading-relaxed">
+                  <strong>💡 ຖ້າເປີດ Google Sheet ແລ້ວຍັງບໍ່ມີຕາຕະລາງ ຫຼື ຂໍ້ມູນຍັງບໍ່ເຂົ້າ:</strong>
+                  <ol className="list-decimal list-inside mt-1 space-y-1.5 text-gray-700">
+                    <li>ເປີດ Google Sheet &gt; ກົດເມນູ <strong>ສ່ວນຂະຫຍາຍ (Extensions) &gt; Apps Script</strong></li>
+                    <li>ກັອບປີ້ Code ຈາກໄຟລ໌ <code>Code.gs</code> ທັງໝົດມາວາງໃສ່ ແລ້ວກົດ 💾 <strong>Save (ບັນທຶກ)</strong></li>
+                    <li>ເລືອກຟັງຊັນ <strong>setupAllTables</strong> ແລ້ວກົດ <strong>▷ Run (ດຳເນີນການ)</strong> ພຽງ 1 ຄັ້ງ ຕາຕະລາງ <strong>Orders</strong>, <strong>Cashiers</strong>, ແລະ <strong>Menu</strong> ຈະຖືກສ້າງຂຶ້ນທັນທີ!</li>
+                    <li>
+                      <strong>ສຳຄັນຫຼາຍສຳລັບການ Deploy:</strong> ທຸກຄັ້ງທີ່ແກ້ Code ຕ້ອງກົດ <strong>Deploy &gt; Manage deployments (ຈັດການການນຳໄປໃຊ້) &gt; ກົດຮູບສໍ ✏️ (Edit) &gt; ເລືອກ Version: "New version" (ເວີຊັນໃໝ່) &gt; ກົດ Deploy</strong> ເພື່ອໃຫ້ Script ຮັບຂໍ້ມູນອໍເດີ ແລະ ເມນູໄດ້ຖືກຕ້ອງ!
+                    </li>
+                  </ol>
+                </div>
+                <div className="flex items-center justify-between bg-emerald-50/80 p-2 rounded-xl border border-emerald-200/60 text-[11px]">
+                  <span className="font-bold text-[#006c49]">3 ແທັບທີ່ຮອງຮັບ:</span>
+                  <span className="text-[#005236] font-medium">Orders | Cashiers | Menu</span>
+                </div>
               </div>
+
+              {onSyncAll && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    vibrateSoft(20);
+                    onSyncAll();
+                  }}
+                  className="w-full py-2.5 bg-[#006c49] hover:bg-[#005236] text-white font-bold rounded-xl text-xs shadow-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+                >
+                  <span className="material-symbols-outlined text-[17px]">cloud_sync</span>
+                  <span>ຊິ້ງທຸກຂໍ້ມູນລົງ Google Sheet (ອໍເດີ + ພະນັກງານ + ເມນູ)</span>
+                </button>
+              )}
 
               <div className="flex gap-2 pt-1">
                 <button
@@ -3714,6 +3782,7 @@
         const [photo, setPhoto] = useState(null);
         const [isCompressing, setIsCompressing] = useState(false);
         const [isSyncingSheet, setIsSyncingSheet] = useState(false);
+        const [showSheetHelp, setShowSheetHelp] = useState(false);
         const nameInputRef = useRef(null);
         const cameraInputRef = useRef(null);
         const galleryInputRef = useRef(null);
@@ -3896,6 +3965,65 @@
                   </span>
                   <span>{isSyncingSheet ? 'ກຳລັງອັບເດດລົງ Google Sheet...' : '🚀 ຊິ້ງລາຍຊື່ຄົນເກັບເງິນລົງ Google Sheet ດຽວນີ້'}</span>
                 </button>
+
+                {/* Guide for why sheet is empty and how to create tables in 1 minute */}
+                <div className="pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowSheetHelp(!showSheetHelp)}
+                    className="w-full text-left py-1.5 px-2.5 rounded-xl bg-amber-50 hover:bg-amber-100/80 text-amber-900 font-bold text-[11px] flex items-center justify-between transition-colors border border-amber-200/80"
+                  >
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <span className="material-symbols-outlined text-[15px] text-amber-600 shrink-0">help</span>
+                      <span className="truncate">ຢູ່ໃນ Sheet ຄືບໍ່ມີຕາຕະລາງ? (ກົດເບິ່ງວິທີສ້າງ 1 ຄລິກ)</span>
+                    </span>
+                    <span className="material-symbols-outlined text-[16px] text-amber-700 shrink-0">
+                      {showSheetHelp ? 'expand_less' : 'expand_more'}
+                    </span>
+                  </button>
+
+                  {showSheetHelp && (
+                    <div className="mt-2 p-3 bg-amber-50/90 rounded-xl border border-amber-200 text-amber-950 text-xs flex flex-col gap-2.5">
+                      <div className="font-bold text-amber-900 flex items-center gap-1.5 text-xs">
+                        <span className="material-symbols-outlined text-[16px] text-amber-700">info</span>
+                        <span>ສາເຫດ: Google Sheet ໃໝ່ຈະເລີ່ມຕົ້ນເປັນແຜ່ນງານເປົ່າ (Sheet1)</span>
+                      </div>
+                      <p className="text-[11px] leading-relaxed text-gray-700">
+                        Google Sheet ບໍ່ໄດ້ສ້າງຕາຕະລາງເອງຈົນກວ່າຈະກົດສ້າງ. ເພື່ອໃຫ້ຕາຕະລາງ <strong>Cashiers</strong> ແລະ <strong>Orders</strong> ຂຶ້ນມາທັນທີ ໃຫ້ເລືອກວິທີໃດໜຶ່ງລຸ່ມນີ້:
+                      </p>
+
+                      <div className="bg-white p-2.5 rounded-lg border border-amber-200 text-[11px] flex flex-col gap-1.5 shadow-2xs">
+                        <div className="font-bold text-[#006c49] flex items-center gap-1">
+                          <span>🚀 ວິທີທີ 1: ສ້າງອັດຕະໂນມັດ 1 ຄລິກ (ແນະນຳ - ໄວສຸດ)</span>
+                        </div>
+                        <ol className="list-decimal list-inside space-y-1 text-gray-700 leading-normal">
+                          <li>ເປີດ Google Sheet ຂອງທ່ານ: <a href={GOOGLE_SHEET_URL} target="_blank" rel="noopener noreferrer" className="text-[#006c49] font-bold underline">ກົດເປີດ Sheet ນີ້</a></li>
+                          <li>ກົດເມນູດ້ານເທິງ: <strong>ສ່ວນຂະຫຍາຍ (Extensions) &gt; Apps Script</strong></li>
+                          <li>ວາງ Code ຈາກໄຟລ໌ <code>Code.gs</code> ແລ້ວກົດ 💾 <strong>Save (ບັນທຶກ)</strong></li>
+                          <li>ຢູ່ແຖບເມນູດ້ານເທິງເລືອກຟັງຊັນ <strong>setupAllTables</strong> ແລ້ວກົດ <strong>▷ Run (ດຳເນີນການ)</strong></li>
+                          <li>ລະບົບຈະສ້າງແທັບ <strong>Cashiers</strong> ແລະ <strong>Orders</strong> ພ້ອມຫົວຕາຕະລາງ ແລະ ສີສັນ Beerlao ໃຫ້ທັນທີ 100%!</li>
+                        </ol>
+                      </div>
+
+                      <div className="bg-white p-2.5 rounded-lg border border-amber-200 text-[11px] flex flex-col gap-1.5 shadow-2xs">
+                        <div className="font-bold text-[#006c49]">
+                          ✍️ ວິທີທີ 2: ພິມຫົວຕາຕະລາງເອງໃນ Sheet
+                        </div>
+                        <p className="text-gray-600">
+                          ປ່ຽນຊື່ແຜ່ນງານ (Sheet Name) ເປັນ: <strong>Cashiers</strong> ແລ້ວພິມຫົວຖັນແຖວທີ 1 ດັ່ງນີ້:
+                        </p>
+                        <div className="font-mono text-[9px] bg-emerald-50 text-[#005236] p-2 rounded-lg border border-emerald-200 break-all select-all leading-relaxed">
+                          A1: ລະຫັດພະນັກງານ (ID)<br />
+                          B1: ຊື່ພະນັກງານເກັບເງິນ (Name)<br />
+                          C1: ສີປະຈຳຕົວ (Color)<br />
+                          D1: ມີຮູບພາບ (Has Photo)<br />
+                          E1: ລິ້ງຮູບ ຫຼື Data (Photo URL)<br />
+                          F1: ວັນທີອັບເດດລ່າສຸດ (Updated At)
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Form: Add or Edit */}
@@ -5294,6 +5422,24 @@
         const [badgeText, setBadgeText] = useState('');
         const [badgeType, setBadgeType] = useState('bestseller');
         const [isCompressing, setIsCompressing] = useState(false);
+        const [isSyncingMenu, setIsSyncingMenu] = useState(false);
+
+        const handleSyncMenuToGoogleSheet = async () => {
+          vibrateSoft(20);
+          setIsSyncingMenu(true);
+          try {
+            const res = await syncProductsToGoogleSheet(products);
+            if (res && res.success) {
+              onShowToast(`ຊິ້ງເມນູ (${products.length} ລາຍການ) ລົງ Google Sheet ແທັບ "Menu" ຮຽບຮ້ອຍ! 📊`, 'success');
+            } else {
+              onShowToast('ບັນທຶກເມນູໃນລະບົບແລ້ວ', 'info');
+            }
+          } catch (e) {
+            onShowToast('ເກີດຂໍ້ຜິດພາດໃນການຊິ້ງເມນູ', 'error');
+          } finally {
+            setIsSyncingMenu(false);
+          }
+        };
 
         const fileInputRef = useRef(null);
 
@@ -5434,6 +5580,32 @@
                   <span>+ ເພີ່ມເມນູ</span>
                 </button>
               </div>
+            </div>
+
+            {/* Google Sheet Menu Sync Bar */}
+            <div className="bg-[#ecfdf5] border border-[#a7f3d0] rounded-2xl p-2.5 mb-3 flex items-center justify-between gap-2 shadow-2xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-white text-[#006c49] flex items-center justify-center font-bold shadow-2xs shrink-0 border border-[#a7f3d0]/60">
+                  <span className="material-symbols-outlined text-[18px]">table_chart</span>
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-[#006c49]">Google Sheet: ແທັບ "Menu"</span>
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+                  </div>
+                  <p className="text-[11px] text-[#005236] truncate">ບັນທຶກ ແລະ ອັບເດດເມນູລົງ Sheet ອັດຕະໂນມັດ</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleSyncMenuToGoogleSheet}
+                disabled={isSyncingMenu}
+                className="py-1.5 px-3 bg-[#006c49] hover:bg-[#005236] disabled:opacity-50 text-white rounded-xl text-[11px] font-bold flex items-center gap-1 shrink-0 active:scale-95 transition-all shadow-xs"
+                title="ກົດເພື່ອຊິ້ງເມນູອາຫານທັງໝົດລົງ Google Sheet ດຽວນີ້"
+              >
+                <span className={`material-symbols-outlined text-[14px] ${isSyncingMenu ? 'animate-spin' : ''}`}>sync</span>
+                <span>{isSyncingMenu ? 'ກຳລັງຊິ້ງ...' : 'ຊິ້ງເມນູລົງ Sheet'}</span>
+              </button>
             </div>
 
             <div className="flex items-center gap-1.5 mb-3 bg-white p-1 rounded-2xl border border-gray-100 shadow-2xs">
@@ -5970,17 +6142,27 @@
         };
 
         const handleAddProduct = (newProduct) => {
-          setProducts((prev) => [newProduct, ...prev]);
+          setProducts((prev) => {
+            const next = [newProduct, ...prev];
+            syncProductsToGoogleSheet(next);
+            return next;
+          });
         };
 
         const handleUpdateProduct = (updatedProduct) => {
-          setProducts((prev) =>
-            prev.map((p) => (p.id === updatedProduct.id ? updatedProduct : p))
-          );
+          setProducts((prev) => {
+            const next = prev.map((p) => (p.id === updatedProduct.id ? updatedProduct : p));
+            syncProductsToGoogleSheet(next);
+            return next;
+          });
         };
 
         const handleDeleteProduct = (productId) => {
-          setProducts((prev) => prev.filter((p) => p.id !== productId));
+          setProducts((prev) => {
+            const next = prev.filter((p) => p.id !== productId);
+            syncProductsToGoogleSheet(next);
+            return next;
+          });
           setCart((prev) => {
             if (prev[productId]) {
               const copy = { ...prev };
@@ -5993,15 +6175,22 @@
 
         const handleResetProducts = () => {
           setProducts(INITIAL_PRODUCTS);
+          syncProductsToGoogleSheet(INITIAL_PRODUCTS);
         };
 
         const handleQuickSyncAll = async () => {
           vibrateSoft(20);
-          showToast(`ກຳລັງຊິ້ງຂໍ້ມູນກັບ Google Sheet ID: ${TARGET_SHEET_ID.slice(0, 10)}...`, 'info');
-          for (const o of orders) {
-            await syncOrderToGoogleSheet(o);
+          showToast(`ກຳລັງຊິ້ງຂໍ້ມູນທັງໝົດກັບ Google Sheet ID: ${TARGET_SHEET_ID.slice(0, 10)}...`, 'info');
+          try {
+            for (const o of orders) {
+              await syncOrderToGoogleSheet(o);
+            }
+            await syncCashiersToGoogleSheet(cashiers);
+            await syncProductsToGoogleSheet(products);
+            showToast('ຊິ້ງຂໍ້ມູນທັງໝົດ (ອໍເດີ, ພະນັກງານ, ເມນູ) ລົງ Google Sheet ຮຽບຮ້ອຍ! 📊', 'success');
+          } catch (e) {
+            showToast('ເກີດຂໍ້ຜິດພາດໃນການຊິ້ງຂໍ້ມູນ', 'error');
           }
-          showToast('ຊິ້ງຂໍ້ມູນລົງ Google Sheet ຮຽບຮ້ອຍ!', 'success');
         };
 
         const cartTotalCount = Object.values(cart).reduce((sum, q) => sum + q, 0);
