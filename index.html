@@ -351,6 +351,38 @@
         return null;
       }
 
+      // Helper function ສຳລັບດຶງລາຍຊື່ພະນັກງານ ແລະ ຮູບພາບຫຼ້າສຸດຈາກ Google Sheet
+      async function fetchCashiersFromGoogleSheet(customScriptUrl) {
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          return new Promise((resolve) => {
+            google.script.run
+              .withSuccessHandler((res) => {
+                if (res && res.status === 'success' && Array.isArray(res.cashiers)) {
+                  resolve(res.cashiers);
+                } else {
+                  resolve(null);
+                }
+              })
+              .withFailureHandler(() => resolve(null))
+              .getCashiersFromSheet();
+          });
+        }
+
+        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL;
+        if (!scriptUrl) return null;
+
+        try {
+          const res = await fetch(`${scriptUrl}?action=get_cashiers`);
+          const data = await res.json();
+          if (data && data.status === 'success' && Array.isArray(data.cashiers) && data.cashiers.length > 0) {
+            return data.cashiers;
+          }
+        } catch (err) {
+          console.warn('Google Sheet Fetch Cashiers Error:', err);
+        }
+        return null;
+      }
+
       let synth = null;
       async function unlockAudio() {
         try {
@@ -3814,6 +3846,7 @@
         const [photo, setPhoto] = useState(null);
         const [isCompressing, setIsCompressing] = useState(false);
         const [isSyncingSheet, setIsSyncingSheet] = useState(false);
+        const [isReloadingCashiers, setIsReloadingCashiers] = useState(false);
         const [showSheetHelp, setShowSheetHelp] = useState(false);
         const nameInputRef = useRef(null);
         const cameraInputRef = useRef(null);
@@ -3832,7 +3865,7 @@
           try {
             const res = await syncCashiersToGoogleSheet(listToSync);
             if (res && res.success) {
-              if (onShowToast) onShowToast(`ອັບເດດລາຍຊື່ຄົນເກັບເງິນ (${listToSync.length} ທ່ານ) ລົງ Google Sheet ສຳເລັດ! 📊`, 'success');
+              if (onShowToast) onShowToast(`ບັນທຶກ ແລະ ອັບໂຫຼດຮູບພະນັກງານ (${listToSync.length} ທ່ານ) ລົງ Drive & Sheet ສຳເລັດ! 📸📊`, 'success');
             } else if (res && res.reason === 'NO_SCRIPT_URL') {
               if (onShowToast) onShowToast(`ບັນທຶກແລ້ວ! (ສຳລັບ Google Sheet: ໃຫ້ໃສ່ Web App URL ໃນໜ້າຕັ້ງຄ່າ Sheet)`, 'info');
             } else {
@@ -3842,6 +3875,24 @@
             console.warn(err);
           } finally {
             setIsSyncingSheet(false);
+          }
+        };
+
+        const handleReloadCashiersFromSheet = async () => {
+          vibrateSoft(20);
+          setIsReloadingCashiers(true);
+          try {
+            const latest = await fetchCashiersFromGoogleSheet();
+            if (latest && Array.isArray(latest) && latest.length > 0) {
+              onUpdateCashiers(latest);
+              if (onShowToast) onShowToast(`ດຶງລາຍຊື່ ແລະ ຮູບພະນັກງານ (${latest.length} ທ່ານ) ຈາກ Google Sheet & Drive ສຳເລັດ! 👥`, 'success');
+            } else {
+              if (onShowToast) onShowToast('ຍັງບໍ່ພົບຂໍ້ມູນພະນັກງານໃນ Sheet', 'warning');
+            }
+          } catch (e) {
+            if (onShowToast) onShowToast('ເກີດຂໍ້ຜິດພາດໃນການດຶງຂໍ້ມູນຈາກ Sheet', 'error');
+          } finally {
+            setIsReloadingCashiers(false);
           }
         };
 
@@ -3986,17 +4037,34 @@
                   <span className="truncate">ID: {TARGET_SHEET_ID}</span>
                   <span className="text-[9px] bg-emerald-100 text-[#006c49] px-2 py-0.5 rounded-md font-bold shrink-0">ແທັບ Cashiers</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleSyncToGoogleSheet(cashiers)}
-                  disabled={isSyncingSheet}
-                  className="w-full py-2.5 px-3 bg-[#006c49] hover:bg-[#005236] text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all disabled:opacity-50"
-                >
-                  <span className={`material-symbols-outlined text-[16px] ${isSyncingSheet ? 'animate-spin' : ''}`}>
-                    {isSyncingSheet ? 'sync' : 'cloud_sync'}
-                  </span>
-                  <span>{isSyncingSheet ? 'ກຳລັງອັບເດດລົງ Google Sheet...' : '🚀 ຊິ້ງລາຍຊື່ຄົນເກັບເງິນລົງ Google Sheet ດຽວນີ້'}</span>
-                </button>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={handleReloadCashiersFromSheet}
+                    disabled={isReloadingCashiers}
+                    className="flex-1 py-2 px-2 bg-white hover:bg-emerald-50 text-[#006c49] border border-[#a7f3d0] disabled:opacity-50 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1 active:scale-95 transition-all shadow-2xs"
+                    title="ດຶງລາຍຊື່ ແລະ ຮູບພະນັກງານຫຼ້າສຸດຈາກ Google Sheet"
+                  >
+                    <span className={`material-symbols-outlined text-[14px] ${isReloadingCashiers ? 'animate-spin' : ''}`}>download</span>
+                    <span>{isReloadingCashiers ? 'ກຳລັງດຶງ...' : 'ດຶງຈາກ Sheet'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSyncToGoogleSheet(cashiers)}
+                    disabled={isSyncingSheet}
+                    className="flex-1 py-2 px-2 bg-[#006c49] hover:bg-[#005236] text-white font-bold rounded-xl text-[11px] flex items-center justify-center gap-1 shadow-sm active:scale-95 transition-all disabled:opacity-50"
+                  >
+                    <span className={`material-symbols-outlined text-[14px] ${isSyncingSheet ? 'animate-spin' : ''}`}>
+                      {isSyncingSheet ? 'sync' : 'cloud_sync'}
+                    </span>
+                    <span>{isSyncingSheet ? 'ກຳລັງຊິ້ງ...' : 'ຊິ້ງລົງ Sheet & Drive'}</span>
+                  </button>
+                </div>
+                <p className="text-[10px] text-[#005236] flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[13px] text-emerald-600">add_photo_alternate</span>
+                  <span>ຮູບພາບພະນັກງານຈະຖືກບັນທຶກລົງ Google Drive & Sheet ອັດຕະໂນມັດ 📸</span>
+                </p>
 
                 {/* Guide for why sheet is empty and how to create tables in 1 minute */}
                 <div className="pt-0.5">
@@ -5464,7 +5532,7 @@
           try {
             const res = await syncProductsToGoogleSheet(products);
             if (res && res.success) {
-              onShowToast(`ຊິ້ງເມນູ (${products.length} ລາຍການ) ລົງ Google Sheet ແທັບ "Menu" ຮຽບຮ້ອຍ! 📊`, 'success');
+              onShowToast(`ຊິ້ງເມນູ ແລະ ຮູບພາບ (${products.length} ລາຍການ) ລົງ Google Drive & Sheet ຮຽບຮ້ອຍ! 📸📊`, 'success');
             } else {
               onShowToast('ບັນທຶກເມນູໃນລະບົບແລ້ວ', 'info');
             }
@@ -5646,7 +5714,7 @@
                     <span className="text-xs font-bold text-[#006c49]">Google Sheet: ແທັບ "Menu"</span>
                     <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
                   </div>
-                  <p className="text-[11px] text-[#005236] truncate">ບັນທຶກ ແລະ ອັບເດດເມນູລົງ Sheet ອັດຕະໂນມັດ</p>
+                  <p className="text-[11px] text-[#005236] truncate">ບັນທຶກເມນູ & ຮູບພາບລົງ Google Drive & Sheet ອັດຕະໂນມັດ 📸</p>
                 </div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
@@ -5665,10 +5733,10 @@
                   onClick={handleSyncMenuToGoogleSheet}
                   disabled={isSyncingMenu}
                   className="py-1.5 px-3 bg-[#006c49] hover:bg-[#005236] disabled:opacity-50 text-white rounded-xl text-[11px] font-bold flex items-center gap-1 active:scale-95 transition-all shadow-xs"
-                  title="ກົດເພື່ອຊິ້ງເມນູອາຫານທັງໝົດລົງ Google Sheet ດຽວນີ້"
+                  title="ກົດເພື່ອຊິ້ງເມນູອາຫານ ແລະ ຮູບພາບລົງ Google Drive & Sheet ດຽວນີ້"
                 >
                   <span className={`material-symbols-outlined text-[14px] ${isSyncingMenu ? 'animate-spin' : ''}`}>sync</span>
-                  <span>{isSyncingMenu ? 'ກຳລັງຊິ້ງ...' : 'ຊິ້ງລົງ Sheet'}</span>
+                  <span>{isSyncingMenu ? 'ກຳລັງຊິ້ງ...' : 'ຊິ້ງລົງ Sheet & Drive'}</span>
                 </button>
               </div>
             </div>
@@ -6079,10 +6147,16 @@
 
         useEffect(() => {
           checkGeoPermission().then((st) => setPermState(st));
-          // ດຶງລາຍການເມນູຫຼ້າສຸດຈາກ Google Sheet ອັດຕະໂນມັດ ເມື່ອເປີດແອັບ ເພື່ອໃຫ້ທຸກເຄື່ອງເຫັນເມນູ ແລະ ລາຄາດຽວກັນ 100%
+          // ດຶງລາຍການເມນູຫຼ້າສຸດຈາກ Google Sheet & Drive ອັດຕະໂນມັດ ເມື່ອເປີດແອັບ
           fetchProductsFromGoogleSheet().then((sheetProducts) => {
             if (sheetProducts && Array.isArray(sheetProducts) && sheetProducts.length > 0) {
               setProducts(sheetProducts);
+            }
+          });
+          // ດຶງລາຍຊື່ພະນັກງານ ແລະ ຮູບພາບຫຼ້າສຸດຈາກ Google Sheet & Drive ອັດຕະໂນມັດ
+          fetchCashiersFromGoogleSheet().then((sheetCashiers) => {
+            if (sheetCashiers && Array.isArray(sheetCashiers) && sheetCashiers.length > 0) {
+              setCashiers(sheetCashiers);
             }
           });
         }, []);
