@@ -319,6 +319,38 @@
         }
       }
 
+      // Helper function ສຳລັບດຶງເມນູຫຼ້າສຸດຈາກ Google Sheet
+      async function fetchProductsFromGoogleSheet(customScriptUrl) {
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          return new Promise((resolve) => {
+            google.script.run
+              .withSuccessHandler((res) => {
+                if (res && res.status === 'success' && Array.isArray(res.products)) {
+                  resolve(res.products);
+                } else {
+                  resolve(null);
+                }
+              })
+              .withFailureHandler(() => resolve(null))
+              .getMenuFromSheet();
+          });
+        }
+
+        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL;
+        if (!scriptUrl) return null;
+
+        try {
+          const res = await fetch(`${scriptUrl}?action=get_menu`);
+          const data = await res.json();
+          if (data && data.status === 'success' && Array.isArray(data.products) && data.products.length > 0) {
+            return data.products;
+          }
+        } catch (err) {
+          console.warn('Google Sheet Fetch Menu Error:', err);
+        }
+        return null;
+      }
+
       let synth = null;
       async function unlockAudio() {
         try {
@@ -5406,6 +5438,7 @@
         onDeleteProduct,
         onResetProducts,
         onShowToast,
+        onReloadMenu,
       }) => {
         const [isModalOpen, setIsModalOpen] = useState(false);
         const [editingProduct, setEditingProduct] = useState(null);
@@ -5423,6 +5456,7 @@
         const [badgeType, setBadgeType] = useState('bestseller');
         const [isCompressing, setIsCompressing] = useState(false);
         const [isSyncingMenu, setIsSyncingMenu] = useState(false);
+        const [isReloadingMenu, setIsReloadingMenu] = useState(false);
 
         const handleSyncMenuToGoogleSheet = async () => {
           vibrateSoft(20);
@@ -5438,6 +5472,25 @@
             onShowToast('ເກີດຂໍ້ຜິດພາດໃນການຊິ້ງເມນູ', 'error');
           } finally {
             setIsSyncingMenu(false);
+          }
+        };
+
+        const handleReloadMenuFromSheet = async () => {
+          vibrateSoft(20);
+          setIsReloadingMenu(true);
+          try {
+            if (onReloadMenu) {
+              const ok = await onReloadMenu();
+              if (ok) {
+                onShowToast('ດຶງເມນູຫຼ້າສຸດຈາກ Google Sheet ສຳເລັດ! 🍽️', 'success');
+              } else {
+                onShowToast('ບໍ່ພົບເມນູໃໝ່ໃນ Google Sheet', 'info');
+              }
+            }
+          } catch (e) {
+            onShowToast('ເກີດຂໍ້ຜິດພາດໃນການດຶງເມນູ', 'error');
+          } finally {
+            setIsReloadingMenu(false);
           }
         };
 
@@ -5476,7 +5529,7 @@
           if (!file) return;
           try {
             setIsCompressing(true);
-            const compressed = await compressImage(file, 480, 0.8);
+            const compressed = await compressImage(file, 260, 0.65);
             setImage(compressed);
             onShowToast('ອັບໂຫຼດຮູບອາຫານສຳເລັດ!', 'success');
           } catch (err) {
@@ -5596,16 +5649,28 @@
                   <p className="text-[11px] text-[#005236] truncate">ບັນທຶກ ແລະ ອັບເດດເມນູລົງ Sheet ອັດຕະໂນມັດ</p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={handleSyncMenuToGoogleSheet}
-                disabled={isSyncingMenu}
-                className="py-1.5 px-3 bg-[#006c49] hover:bg-[#005236] disabled:opacity-50 text-white rounded-xl text-[11px] font-bold flex items-center gap-1 shrink-0 active:scale-95 transition-all shadow-xs"
-                title="ກົດເພື່ອຊິ້ງເມນູອາຫານທັງໝົດລົງ Google Sheet ດຽວນີ້"
-              >
-                <span className={`material-symbols-outlined text-[14px] ${isSyncingMenu ? 'animate-spin' : ''}`}>sync</span>
-                <span>{isSyncingMenu ? 'ກຳລັງຊິ້ງ...' : 'ຊິ້ງເມນູລົງ Sheet'}</span>
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleReloadMenuFromSheet}
+                  disabled={isReloadingMenu}
+                  className="py-1.5 px-2.5 bg-white hover:bg-emerald-50 text-[#006c49] border border-[#a7f3d0] disabled:opacity-50 rounded-xl text-[11px] font-bold flex items-center gap-1 active:scale-95 transition-all shadow-2xs"
+                  title="ດຶງເມນູຫຼ້າສຸດຈາກ Google Sheet"
+                >
+                  <span className={`material-symbols-outlined text-[14px] ${isReloadingMenu ? 'animate-spin' : ''}`}>download</span>
+                  <span>{isReloadingMenu ? 'ກຳລັງດຶງ...' : 'ດຶງຈາກ Sheet'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSyncMenuToGoogleSheet}
+                  disabled={isSyncingMenu}
+                  className="py-1.5 px-3 bg-[#006c49] hover:bg-[#005236] disabled:opacity-50 text-white rounded-xl text-[11px] font-bold flex items-center gap-1 active:scale-95 transition-all shadow-xs"
+                  title="ກົດເພື່ອຊິ້ງເມນູອາຫານທັງໝົດລົງ Google Sheet ດຽວນີ້"
+                >
+                  <span className={`material-symbols-outlined text-[14px] ${isSyncingMenu ? 'animate-spin' : ''}`}>sync</span>
+                  <span>{isSyncingMenu ? 'ກຳລັງຊິ້ງ...' : 'ຊິ້ງລົງ Sheet'}</span>
+                </button>
+              </div>
             </div>
 
             <div className="flex items-center gap-1.5 mb-3 bg-white p-1 rounded-2xl border border-gray-100 shadow-2xs">
@@ -6014,6 +6079,12 @@
 
         useEffect(() => {
           checkGeoPermission().then((st) => setPermState(st));
+          // ດຶງລາຍການເມນູຫຼ້າສຸດຈາກ Google Sheet ອັດຕະໂນມັດ ເມື່ອເປີດແອັບ ເພື່ອໃຫ້ທຸກເຄື່ອງເຫັນເມນູ ແລະ ລາຄາດຽວກັນ 100%
+          fetchProductsFromGoogleSheet().then((sheetProducts) => {
+            if (sheetProducts && Array.isArray(sheetProducts) && sheetProducts.length > 0) {
+              setProducts(sheetProducts);
+            }
+          });
         }, []);
 
         const triggerBrowserPermissionPrompt = async () => {
