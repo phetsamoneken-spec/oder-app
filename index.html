@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <title>ລະບົບ POS & ສົ່ງອໍເດີ WhatsApp + Google Sheet</title>
-    <meta name="description" content="ລະບົບ POS ຮ້ານຄ້າລາວ ບັນທຶກລົງ Google Sheet ID: 1khGFmVfEqPhTyuDyd_zc8chNEhldTch3bzKAIrq-spA" />
+    <meta name="description" content="ລະບົບ POS ຮ້ານຄ້າລາວ ບັນທຶກລົງ Google Sheet ID: 12CV_NOtFAsj9xZ6LnzzEqi5PjbPPVegOpFOC9B8m7gY" />
 
     <!-- PWA & Desktop App Icon Setup (Beerlao Style App Icon) -->
     <meta name="theme-color" content="#fbb315" />
@@ -149,7 +149,7 @@
       const { useState, useEffect, useMemo, useRef } = React;
 
       // Google Sheet ID ທີ່ກຳນົດ
-      const TARGET_SHEET_ID = '1khGFmVfEqPhTyuDyd_zc8chNEhldTch3bzKAIrq-spA';
+      const TARGET_SHEET_ID = '12CV_NOtFAsj9xZ6LnzzEqi5PjbPPVegOpFOC9B8m7gY';
       const GOOGLE_SHEET_URL = `https://docs.google.com/spreadsheets/d/${TARGET_SHEET_ID}/edit`;
 
       // ປ່ຽນ Base64 Data URL ເປັນ File Object ສຳລັບສົ່ງເຂົ້າ WhatsApp ໂດຍກົງ
@@ -237,6 +237,40 @@
           return { success: true };
         } catch (err) {
           return { success: false };
+        }
+      }
+
+      // Helper function ສຳລັບບັນທຶກ ແລະ ອັບເດດລາຍຊື່ພະນັກງານເກັບເງິນລົງ Google Sheet ແທັບ Cashiers
+      async function syncCashiersToGoogleSheet(cashiersList, customScriptUrl) {
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          return new Promise((resolve) => {
+            google.script.run
+              .withSuccessHandler((res) => resolve({ success: true, result: res }))
+              .withFailureHandler((err) => resolve({ success: false, error: err }))
+              .saveCashiersFromClient(cashiersList);
+          });
+        }
+
+        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || '';
+        if (!scriptUrl) {
+          return { success: false, reason: 'NO_SCRIPT_URL' };
+        }
+
+        try {
+          await fetch(scriptUrl, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'save_cashiers',
+              sheetId: TARGET_SHEET_ID,
+              cashiers: cashiersList,
+            }),
+          });
+          return { success: true };
+        } catch (err) {
+          console.warn('Cashiers Sheet Sync Error:', err);
+          return { success: false, error: err };
         }
       }
 
@@ -861,7 +895,7 @@
                   1. ເປີດ Google Sheet ຂອງທ່ານ ແລ້ວກົດເມນູ <strong>ສ່ວນຂະຫຍາຍ (Extensions) &gt; Apps Script</strong><br />
                   2. ນຳ Code ຈາກໄຟລ໌ <code>Code.gs</code> ໄປວາງໃສ່ແລ້ວກົດ Save.<br />
                   3. ກົດ <strong>Deploy &gt; New deployment &gt; Web app</strong> (ເລືອກ Who has access: <em>Anyone</em>).<br />
-                  4. ສາມາດເປີດ Web App URL ທີ່ Deploy ແລ້ວໃຊ້ງານໄດ້ທັນທີ.
+                  4. ລະບົບຈະສ້າງແທັບ <strong>Orders</strong> (ອໍເດີ) ແລະ ແທັບ <strong>Cashiers</strong> (ພະນັກງານເກັບເງິນ) ໃຫ້ອັດຕະໂນມັດ!
                 </p>
               </div>
 
@@ -3679,6 +3713,7 @@
         const [name, setName] = useState('');
         const [photo, setPhoto] = useState(null);
         const [isCompressing, setIsCompressing] = useState(false);
+        const [isSyncingSheet, setIsSyncingSheet] = useState(false);
         const nameInputRef = useRef(null);
         const cameraInputRef = useRef(null);
         const galleryInputRef = useRef(null);
@@ -3688,6 +3723,25 @@
           setDeletingCashierId(null);
           setName('');
           setPhoto(null);
+        };
+
+        const handleSyncToGoogleSheet = async (listToSync = cashiers) => {
+          vibrateSoft(20);
+          setIsSyncingSheet(true);
+          try {
+            const res = await syncCashiersToGoogleSheet(listToSync);
+            if (res && res.success) {
+              if (onShowToast) onShowToast(`ອັບເດດລາຍຊື່ຄົນເກັບເງິນ (${listToSync.length} ທ່ານ) ລົງ Google Sheet ສຳເລັດ! 📊`, 'success');
+            } else if (res && res.reason === 'NO_SCRIPT_URL') {
+              if (onShowToast) onShowToast(`ບັນທຶກແລ້ວ! (ສຳລັບ Google Sheet: ໃຫ້ໃສ່ Web App URL ໃນໜ້າຕັ້ງຄ່າ Sheet)`, 'info');
+            } else {
+              if (onShowToast) onShowToast(`ບັນທຶກໃນລະບົບຮຽບຮ້ອຍ`, 'info');
+            }
+          } catch (err) {
+            console.warn(err);
+          } finally {
+            setIsSyncingSheet(false);
+          }
         };
 
         const startEdit = (c) => {
@@ -3734,6 +3788,7 @@
               c.id === editingCashierId ? { ...c, name: trimmed, photo: photo } : c
             );
             onUpdateCashiers(updated);
+            handleSyncToGoogleSheet(updated);
             if (onShowToast) onShowToast(`ແກ້ໄຂຂໍ້ມູນ "${trimmed}" ສຳເລັດແລ້ວ! ✨`, 'success');
           } else {
             if (cashiers.some((c) => c.name.toLowerCase() === trimmed.toLowerCase())) {
@@ -3746,7 +3801,9 @@
               photo: photo,
               color: ['#006c49', '#0284c7', '#7c3aed', '#ea580c', '#059669', '#db2777', '#d97706'][cashiers.length % 7],
             };
-            onUpdateCashiers([...cashiers, newCashier]);
+            const updated = [...cashiers, newCashier];
+            onUpdateCashiers(updated);
+            handleSyncToGoogleSheet(updated);
             if (onShowToast) onShowToast(`ເພີ່ມຄົນເກັບເງິນ "${trimmed}" ສຳເລັດ! 🎉`, 'success');
           }
           resetForm();
@@ -3770,6 +3827,7 @@
           }
           const updated = cashiers.filter((c) => c.id !== id);
           onUpdateCashiers(updated);
+          handleSyncToGoogleSheet(updated);
           if (onShowToast) onShowToast(`ລຶບ "${cName}" ອອກຈາກລາຍຊື່ແລ້ວ! 🗑️`, 'info');
           if (editingCashierId === id) resetForm();
           setDeletingCashierId(null);
@@ -3802,6 +3860,41 @@
                   className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 flex items-center justify-center transition-colors"
                 >
                   <span className="material-symbols-outlined text-[18px]">close</span>
+                </button>
+              </div>
+
+              {/* Google Sheet ID & Sync for Cashiers */}
+              <div className="bg-[#ecfdf5] p-3 rounded-2xl border border-[#a7f3d0] flex flex-col gap-2 shadow-2xs">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-[#006c49] flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[17px] text-[#0f9d58]">table_chart</span>
+                    <span>Google Sheet: ພະນັກງານເກັບເງິນ</span>
+                  </span>
+                  <a
+                    href={GOOGLE_SHEET_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] text-[#0f9d58] font-bold hover:underline flex items-center gap-0.5"
+                    title="ເປີດ Google Sheet ໂດຍກົງ"
+                  >
+                    <span>ເປີດ Sheet</span>
+                    <span className="material-symbols-outlined text-[13px]">open_in_new</span>
+                  </a>
+                </div>
+                <div className="font-mono text-[10px] text-[#005236] bg-white/90 px-2 py-1.5 rounded-xl break-all select-all font-semibold border border-[#a7f3d0]/60 flex items-center justify-between gap-1">
+                  <span className="truncate">ID: {TARGET_SHEET_ID}</span>
+                  <span className="text-[9px] bg-emerald-100 text-[#006c49] px-2 py-0.5 rounded-md font-bold shrink-0">ແທັບ Cashiers</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleSyncToGoogleSheet(cashiers)}
+                  disabled={isSyncingSheet}
+                  className="w-full py-2.5 px-3 bg-[#006c49] hover:bg-[#005236] text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all disabled:opacity-50"
+                >
+                  <span className={`material-symbols-outlined text-[16px] ${isSyncingSheet ? 'animate-spin' : ''}`}>
+                    {isSyncingSheet ? 'sync' : 'cloud_sync'}
+                  </span>
+                  <span>{isSyncingSheet ? 'ກຳລັງອັບເດດລົງ Google Sheet...' : '🚀 ຊິ້ງລາຍຊື່ຄົນເກັບເງິນລົງ Google Sheet ດຽວນີ້'}</span>
                 </button>
               </div>
 

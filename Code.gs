@@ -1,4 +1,4 @@
-const SPREADSHEET_ID = '1khGFmVfEqPhTyuDyd_zc8chNEhldTch3bzKAIrq-spA';
+const SPREADSHEET_ID = '12CV_NOtFAsj9xZ6LnzzEqi5PjbPPVegOpFOC9B8m7gY';
 
 // ເມື່ອເປີດ Web App URL ຜ່ານ Browser ຈະດຶງໜ້າ index.html ມາສະແດງຜົນ
 function doGet(e) {
@@ -33,6 +33,13 @@ function doPost(e) {
     }
 
     const payload = JSON.parse(rawData);
+
+    // ກໍລະນີບັນທຶກ ແລະ ອັບເດດລາຍຊື່ພະນັກງານເກັບເງິນ (Save / Sync Cashiers)
+    if (payload.action === 'save_cashiers' || payload.action === 'saveCashiers' || payload.action === 'sync_cashiers') {
+      const cashiers = payload.cashiers || [];
+      const res = saveCashiersFromClient(cashiers);
+      return jsonResponse(res);
+    }
 
     // ກໍລະນີອັບເດດສະຖານະອໍເດີ (Update Status)
     if (payload.action === 'update_status' || payload.action === 'updateStatus') {
@@ -117,6 +124,60 @@ function saveOrderFromClient(order) {
       status: 'success',
       message: 'Order saved successfully',
       orderId: order.id
+    };
+  } catch (err) {
+    return { status: 'error', message: err.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Function ບັນທຶກ ແລະ ອັບເດດລາຍຊື່ພະນັກງານເກັບເງິນລົງ Sheet "Cashiers"
+function saveCashiersFromClient(cashiers) {
+  const lock = LockService.getScriptLock();
+  lock.tryLock(10000);
+
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    let sheet = ss.getSheetByName('Cashiers');
+
+    if (!sheet) {
+      sheet = ss.insertSheet('Cashiers');
+    }
+
+    const headers = [
+      'ລະຫັດພະນັກງານ (ID)',
+      'ຊື່ພະນັກງານເກັບເງິນ (Name)',
+      'ສີປະຈຳຕົວ (Color)',
+      'ມີຮູບພາບ (Has Photo)',
+      'ລິ້ງຮູບ ຫຼື Data (Photo URL)',
+      'ວັນທີອັບເດດລ່າສຸດ (Updated At)'
+    ];
+
+    sheet.clearContents();
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setBackground('#006c49').setFontColor('#ffffff').setFontWeight('bold');
+    sheet.setFrozenRows(1);
+
+    const nowStr = new Date().toLocaleString('lo-LA', { timeZone: 'Asia/Vientiane' });
+
+    (cashiers || []).forEach(function(c) {
+      const hasPhoto = c.photo ? (c.photo.startsWith('data:image') ? 'ຮູບຖ່າຍ (Base64)' : 'ຮູບໂປຣໄຟລ໌') : 'ບໍ່ມີຮູບ';
+      const photoDisplay = c.photo ? (c.photo.length > 500 ? (c.photo.startsWith('http') ? c.photo : '[Image Data Base64]') : c.photo) : '';
+      sheet.appendRow([
+        c.id || '',
+        c.name || '',
+        c.color || '#006c49',
+        hasPhoto,
+        photoDisplay,
+        nowStr
+      ]);
+    });
+
+    return {
+      status: 'success',
+      message: 'Cashiers updated successfully in Google Sheet',
+      count: cashiers.length
     };
   } catch (err) {
     return { status: 'error', message: err.toString() };
