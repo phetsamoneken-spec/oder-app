@@ -251,6 +251,142 @@
         }
       }
 
+      // Helper function ສຳລັບອັບໂຫຼດຮູບພາບເຂົ້າ Google Drive ໂຟນເດີ "order app" (ID: 1JFlPMCT6FyANB_3XN7wFhaGIQK7NEU2x)
+      async function uploadImageToGoogleDrive(base64Data, filename = 'image', type = 'menu', customScriptUrl) {
+        if (!base64Data || typeof base64Data !== 'string') return null;
+        if (base64Data.startsWith('http://') || base64Data.startsWith('https://')) {
+          let fileId = '';
+          const match = base64Data.match(/\/d\/([a-zA-Z0-9_-]+)/);
+          if (match) fileId = match[1];
+          return {
+            status: 'success',
+            directUrl: base64Data,
+            fileId: fileId,
+            viewUrl: fileId ? `https://drive.google.com/file/d/${fileId}/view` : base64Data
+          };
+        }
+        if (!base64Data.startsWith('data:image')) {
+          return null;
+        }
+
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          return new Promise((resolve) => {
+            google.script.run
+              .withSuccessHandler((res) => resolve(res))
+              .withFailureHandler(() => resolve(null))
+              .handleImageUpload({
+                fileData: base64Data,
+                fileName: filename,
+                type: type,
+              });
+          });
+        }
+
+        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL;
+        if (!scriptUrl) return null;
+
+        try {
+          const res = await fetch(scriptUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'upload_image',
+              fileData: base64Data,
+              fileName: filename,
+              type: type,
+              sheetId: TARGET_SHEET_ID,
+            }),
+          });
+          const text = await res.text();
+          let data = null;
+          try {
+            data = JSON.parse(text);
+          } catch (e) {
+            console.warn('Google Drive Image Upload parse response:', text);
+          }
+          if (data && (data.status === 'success' || data.directUrl)) {
+            return data;
+          }
+        } catch (err) {
+          console.warn('Google Drive Image Upload Error:', err);
+        }
+        return null;
+      }
+
+      // Helper function ສຳລັບບັນທຶກ ຫຼື ອັບເດດເມນູສິນຄ້າ 1 ລາຍການລົງ Google Sheet
+      async function saveSingleProductToGoogleSheet(product, customScriptUrl) {
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          return new Promise((resolve) => {
+            google.script.run
+              .withSuccessHandler((res) => resolve({ success: true, result: res }))
+              .withFailureHandler((err) => resolve({ success: false, error: err }))
+              .saveSingleProductFromClient(product);
+          });
+        }
+
+        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL;
+        if (!scriptUrl) return { success: false, reason: 'NO_SCRIPT_URL' };
+
+        try {
+          const res = await fetch(scriptUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'save_single_product',
+              sheetId: TARGET_SHEET_ID,
+              product: product,
+            }),
+          });
+          const text = await res.text();
+          try {
+            const data = JSON.parse(text);
+            return { success: true, data };
+          } catch (e) {
+            return { success: true };
+          }
+        } catch (err) {
+          console.warn('saveSingleProductToGoogleSheet error:', err);
+          return { success: false, error: err };
+        }
+      }
+
+      // Helper function ສຳລັບບັນທຶກ ຫຼື ອັບເດດພະນັກງານ 1 ທ່ານລົງ Google Sheet
+      async function saveSingleCashierToGoogleSheet(cashier, customScriptUrl) {
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          return new Promise((resolve) => {
+            google.script.run
+              .withSuccessHandler((res) => resolve({ success: true, result: res }))
+              .withFailureHandler((err) => resolve({ success: false, error: err }))
+              .saveSingleCashierFromClient(cashier);
+          });
+        }
+
+        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL;
+        if (!scriptUrl) return { success: false, reason: 'NO_SCRIPT_URL' };
+
+        try {
+          const res = await fetch(scriptUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'save_single_cashier',
+              sheetId: TARGET_SHEET_ID,
+              cashier: cashier,
+            }),
+          });
+          const text = await res.text();
+          try {
+            const data = JSON.parse(text);
+            return { success: true, data };
+          } catch (e) {
+            return { success: true };
+          }
+        } catch (err) {
+          console.warn('saveSingleCashierToGoogleSheet error:', err);
+          return { success: false, error: err };
+        }
+      }
+
       // Helper function ສຳລັບບັນທຶກ ແລະ ອັບເດດລາຍຊື່ພະນັກງານເກັບເງິນລົງ Google Sheet ແທັບ Cashiers
       async function syncCashiersToGoogleSheet(cashiersList, customScriptUrl) {
         if (typeof google !== 'undefined' && google.script && google.script.run) {
@@ -268,9 +404,8 @@
         }
 
         try {
-          await fetch(scriptUrl, {
+          const res = await fetch(scriptUrl, {
             method: 'POST',
-            mode: 'no-cors',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({
               action: 'save_cashiers',
@@ -278,7 +413,13 @@
               cashiers: cashiersList,
             }),
           });
-          return { success: true };
+          const text = await res.text();
+          try {
+            const data = JSON.parse(text);
+            return { success: true, data };
+          } catch (e) {
+            return { success: true };
+          }
         } catch (err) {
           console.warn('Google Sheet Cashiers Sync Error:', err);
           return { success: false, error: err };
@@ -302,9 +443,8 @@
         }
 
         try {
-          await fetch(scriptUrl, {
+          const res = await fetch(scriptUrl, {
             method: 'POST',
-            mode: 'no-cors',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({
               action: 'save_products',
@@ -312,7 +452,13 @@
               products: productsList,
             }),
           });
-          return { success: true };
+          const text = await res.text();
+          try {
+            const data = JSON.parse(text);
+            return { success: true, data };
+          } catch (e) {
+            return { success: true };
+          }
         } catch (err) {
           console.warn('Google Sheet Products Sync Error:', err);
           return { success: false, error: err };
@@ -3923,41 +4069,78 @@
           }
         };
 
-        const handleSave = (e) => {
+        const handleSave = async (e) => {
           e.preventDefault();
           const trimmed = name.trim();
           if (!trimmed) {
             if (onShowToast) onShowToast('ກະລຸນາໃສ່ຊື່ຄົນເກັບເງິນ', 'warning');
             return;
           }
+          if (isSyncingSheet) return;
 
+          setIsSyncingSheet(true);
+          let finalPhotoUrl = photo || '';
+          let driveFileId = '';
+          let driveViewUrl = '';
+
+          // 1. ຖ້າເປັນຮູບພາບ Base64: ອັບໂຫຼດລົງ Google Drive (Folder ID: 1JFlPMCT6FyANB_3XN7wFhaGIQK7NEU2x) ກ່ອນ!
+          if (finalPhotoUrl && finalPhotoUrl.startsWith('data:image')) {
+            if (onShowToast) onShowToast('ກຳລັງອັບໂຫຼດຮູບພະນັກງານເຂົ້າ Google Drive... ☁️', 'info');
+            try {
+              const driveRes = await uploadImageToGoogleDrive(finalPhotoUrl, 'Staff_' + trimmed, 'staff');
+              if (driveRes && (driveRes.directUrl || driveRes.status === 'success')) {
+                finalPhotoUrl = driveRes.directUrl;
+                driveFileId = driveRes.fileId || '';
+                driveViewUrl = driveRes.viewUrl || '';
+              }
+            } catch (uploadErr) {
+              console.warn('Cashier upload error:', uploadErr);
+            }
+          }
+
+          let updated;
+          let targetCashier;
           if (editingCashierId) {
             if (cashiers.some((c) => c.id !== editingCashierId && c.name.toLowerCase() === trimmed.toLowerCase())) {
               if (onShowToast) onShowToast(`ມີຊື່ "${trimmed}" ແລ້ວໃນລະບົບ`, 'warning');
+              setIsSyncingSheet(false);
               return;
             }
-            const updated = cashiers.map((c) =>
-              c.id === editingCashierId ? { ...c, name: trimmed, photo: photo } : c
+            targetCashier = {
+              id: editingCashierId,
+              name: trimmed,
+              photo: finalPhotoUrl,
+              driveFileId: driveFileId,
+              driveViewUrl: driveViewUrl
+            };
+            updated = cashiers.map((c) =>
+              c.id === editingCashierId ? { ...c, ...targetCashier } : c
             );
             onUpdateCashiers(updated);
-            handleSyncToGoogleSheet(updated);
-            if (onShowToast) onShowToast(`ແກ້ໄຂຂໍ້ມູນ "${trimmed}" ສຳເລັດແລ້ວ! ✨`, 'success');
+            await saveSingleCashierToGoogleSheet(targetCashier);
+            await handleSyncToGoogleSheet(updated);
+            if (onShowToast) onShowToast(`ແກ້ໄຂ ແລະ ອັບໂຫຼດຮູບ "${trimmed}" ລົງ Drive & Sheet ສຳເລັດ! ✨`, 'success');
           } else {
             if (cashiers.some((c) => c.name.toLowerCase() === trimmed.toLowerCase())) {
               if (onShowToast) onShowToast(`ມີຊື່ "${trimmed}" ແລ້ວໃນລະບົບ`, 'warning');
+              setIsSyncingSheet(false);
               return;
             }
-            const newCashier = {
+            targetCashier = {
               id: `c-${Date.now()}`,
               name: trimmed,
-              photo: photo,
+              photo: finalPhotoUrl,
+              driveFileId: driveFileId,
+              driveViewUrl: driveViewUrl,
               color: ['#006c49', '#0284c7', '#7c3aed', '#ea580c', '#059669', '#db2777', '#d97706'][cashiers.length % 7],
             };
-            const updated = [...cashiers, newCashier];
+            updated = [...cashiers, targetCashier];
             onUpdateCashiers(updated);
-            handleSyncToGoogleSheet(updated);
-            if (onShowToast) onShowToast(`ເພີ່ມຄົນເກັບເງິນ "${trimmed}" ສຳເລັດ! 🎉`, 'success');
+            await saveSingleCashierToGoogleSheet(targetCashier);
+            await handleSyncToGoogleSheet(updated);
+            if (onShowToast) onShowToast(`ເພີ່ມ ແລະ ອັບໂຫຼດຮູບ "${trimmed}" ລົງ Drive & Sheet ສຳເລັດ! 🎉`, 'success');
           }
+          setIsSyncingSheet(false);
           resetForm();
         };
 
@@ -4253,13 +4436,15 @@
                 <div className="flex items-center gap-2 pt-1">
                   <button
                     type="submit"
-                    disabled={isCompressing}
-                    className="flex-1 py-2.5 px-4 bg-[#006c49] hover:bg-[#005236] text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-900/15 active:scale-95 transition-all"
+                    disabled={isCompressing || isSyncingSheet}
+                    className="flex-1 py-2.5 px-4 bg-[#006c49] hover:bg-[#005236] disabled:opacity-60 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-900/15 active:scale-95 transition-all"
                   >
-                    <span className="material-symbols-outlined text-[16px]">
-                      {editingCashierId ? 'check_circle' : 'add'}
+                    <span className={`material-symbols-outlined text-[16px] ${isSyncingSheet ? 'animate-spin' : ''}`}>
+                      {isSyncingSheet ? 'progress_activity' : (editingCashierId ? 'check_circle' : 'add')}
                     </span>
-                    <span>{editingCashierId ? 'ບັນທຶກການແກ້ໄຂ' : '+ ບັນທຶກຄົນເກັບເງິນ'}</span>
+                    <span>
+                      {isSyncingSheet ? 'ກຳລັງອັບໂຫຼດ & ບັນທຶກ...' : (editingCashierId ? 'ບັນທຶກການແກ້ໄຂ' : '+ ບັນທຶກຄົນເກັບເງິນ')}
+                    </span>
                   </button>
                   {editingCashierId && (
                     <button
@@ -5525,6 +5710,8 @@
         const [isCompressing, setIsCompressing] = useState(false);
         const [isSyncingMenu, setIsSyncingMenu] = useState(false);
         const [isReloadingMenu, setIsReloadingMenu] = useState(false);
+        const [isSavingProduct, setIsSavingProduct] = useState(false);
+        const [saveProductStatus, setSaveProductStatus] = useState('');
 
         const handleSyncMenuToGoogleSheet = async () => {
           vibrateSoft(20);
@@ -5575,6 +5762,8 @@
           setImage(PRESET_FOOD_PHOTOS[0].url);
           setBadgeText('');
           setBadgeType('bestseller');
+          setIsSavingProduct(false);
+          setSaveProductStatus('');
           setIsModalOpen(true);
         };
 
@@ -5589,6 +5778,8 @@
           setImage(prod.image || '');
           setBadgeText(prod.badgeText || '');
           setBadgeType(prod.badgeType || 'bestseller');
+          setIsSavingProduct(false);
+          setSaveProductStatus('');
           setIsModalOpen(true);
         };
 
@@ -5597,9 +5788,9 @@
           if (!file) return;
           try {
             setIsCompressing(true);
-            const compressed = await compressImage(file, 260, 0.65);
+            const compressed = await compressImage(file, 400, 0.8);
             setImage(compressed);
-            onShowToast('ອັບໂຫຼດຮູບອາຫານສຳເລັດ!', 'success');
+            onShowToast('ເລືອກຮູບພາບສຳເລັດ! ກົດ "ບັນທຶກ" ເພື່ອອັບໂຫຼດລົງ Google Drive ☁️', 'success');
           } catch (err) {
             onShowToast('ເກີດຂໍ້ຜິດພາດໃນການອັບໂຫຼດຮູບພາບ', 'error');
           } finally {
@@ -5607,8 +5798,9 @@
           }
         };
 
-        const handleSaveProduct = (e) => {
-          e.preventDefault();
+        const handleSaveProduct = async (e) => {
+          if (e && e.preventDefault) e.preventDefault();
+          if (isSavingProduct) return;
           if (!name.trim()) {
             onShowToast('ກະລຸນາປ້ອນຊື່ເມນູອາຫານ/ເຄື່ອງດື່ມ', 'warning');
             return;
@@ -5619,6 +5811,28 @@
             return;
           }
 
+          setIsSavingProduct(true);
+          let finalImageUrl = image || PRESET_FOOD_PHOTOS[0].url;
+          let driveFileId = editingProduct?.driveFileId || '';
+          let driveViewUrl = editingProduct?.driveViewUrl || '';
+
+          // 1. ຖ້າເປັນຮູບພາບ Base64: ໃຫ້ອັບໂຫຼດລົງ Google Drive ໂຟນເດີ 1JFlPMCT6FyANB_3XN7wFhaGIQK7NEU2x ກ່ອນ!
+          if (finalImageUrl && finalImageUrl.startsWith('data:image')) {
+            setSaveProductStatus('ກຳລັງອັບໂຫຼດຮູບເຂົ້າ Google Drive... ☁️');
+            try {
+              const driveRes = await uploadImageToGoogleDrive(finalImageUrl, 'Menu_' + name.trim(), 'menu');
+              if (driveRes && (driveRes.directUrl || driveRes.status === 'success')) {
+                finalImageUrl = driveRes.directUrl;
+                driveFileId = driveRes.fileId || driveFileId;
+                driveViewUrl = driveRes.viewUrl || driveViewUrl;
+              } else {
+                console.warn('Drive image upload returned fallback:', driveRes);
+              }
+            } catch (uploadErr) {
+              console.warn('Drive image upload error:', uploadErr);
+            }
+          }
+
           const productPayload = {
             id: editingProduct ? editingProduct.id : `item-${Date.now()}`,
             name: name.trim(),
@@ -5626,20 +5840,30 @@
             sub: sub.trim() || 'ເມນູພິເສດ',
             category,
             price: numPrice,
-            image: image || PRESET_FOOD_PHOTOS[0].url,
+            image: finalImageUrl,
+            driveFileId: driveFileId,
+            driveViewUrl: driveViewUrl,
             badgeText: badgeText.trim() || undefined,
             badgeType: badgeText.trim() ? badgeType : undefined,
           };
 
-          if (editingProduct) {
-            onUpdateProduct(productPayload);
-            onShowToast(`ແກ້ໄຂເມນູ "${productPayload.name}" ສຳເລັດ!`, 'success');
-          } else {
-            onAddProduct(productPayload);
-            onShowToast(`ເພີ່ມເມນູໃໝ່ "${productPayload.name}" ສຳເລັດ!`, 'success');
+          // 2. ບັນທຶກລົງ Google Sheet ແລະ ອັບເດດ State
+          setSaveProductStatus('ກຳລັງບັນທຶກລົງ Google Sheet... 📊');
+          try {
+            if (editingProduct) {
+              await onUpdateProduct(productPayload);
+              onShowToast(`ແກ້ໄຂ ແລະ ບັນທຶກ "${productPayload.name}" ລົງ Drive & Sheet ສຳເລັດ! 🎉`, 'success');
+            } else {
+              await onAddProduct(productPayload);
+              onShowToast(`ເພີ່ມເມນູໃໝ່ "${productPayload.name}" ລົງ Drive & Sheet ສຳເລັດ! 🎉`, 'success');
+            }
+            setIsModalOpen(false);
+          } catch (err) {
+            onShowToast(`ເກີດຂໍ້ຜິດພາດ: ${err.message || err}`, 'error');
+          } finally {
+            setIsSavingProduct(false);
+            setSaveProductStatus('');
           }
-
-          setIsModalOpen(false);
         };
 
         const displayedProducts = useMemo(() => {
@@ -6081,10 +6305,13 @@
                     <button
                       type="button"
                       onClick={handleSaveProduct}
-                      className="flex-1 py-2.5 bg-[#006c49] hover:bg-[#005236] text-white font-bold rounded-xl text-xs shadow-md shadow-emerald-900/15 flex items-center justify-center gap-1 active:scale-95 transition-all"
+                      disabled={isSavingProduct || isCompressing}
+                      className="flex-1 py-2.5 bg-[#006c49] hover:bg-[#005236] disabled:opacity-60 text-white font-bold rounded-xl text-xs shadow-md shadow-emerald-900/15 flex items-center justify-center gap-1.5 active:scale-95 transition-all"
                     >
-                      <span className="material-symbols-outlined text-[16px]">check</span>
-                      <span>{editingProduct ? 'ບັນທຶກການແກ້ໄຂ' : 'ເພີ່ມເມນູນີ້'}</span>
+                      <span className={`material-symbols-outlined text-[16px] ${isSavingProduct ? 'animate-spin' : ''}`}>
+                        {isSavingProduct ? 'progress_activity' : 'check'}
+                      </span>
+                      <span>{isSavingProduct ? (saveProductStatus || 'ກຳລັງບັນທຶກ...') : (editingProduct ? 'ບັນທຶກການແກ້ໄຂ' : 'ເພີ່ມເມນູນີ້')}</span>
                     </button>
                   </div>
                 </div>
@@ -6286,20 +6513,28 @@
           );
         };
 
-        const handleAddProduct = (newProduct) => {
+        const handleAddProduct = async (newProduct) => {
+          let updatedList;
           setProducts((prev) => {
-            const next = [newProduct, ...prev];
-            syncProductsToGoogleSheet(next);
-            return next;
+            updatedList = [newProduct, ...prev.filter((p) => p.id !== newProduct.id)];
+            return updatedList;
           });
+          await saveSingleProductToGoogleSheet(newProduct);
+          if (updatedList) {
+            syncProductsToGoogleSheet(updatedList);
+          }
         };
 
-        const handleUpdateProduct = (updatedProduct) => {
+        const handleUpdateProduct = async (updatedProduct) => {
+          let updatedList;
           setProducts((prev) => {
-            const next = prev.map((p) => (p.id === updatedProduct.id ? updatedProduct : p));
-            syncProductsToGoogleSheet(next);
-            return next;
+            updatedList = prev.map((p) => (p.id === updatedProduct.id ? updatedProduct : p));
+            return updatedList;
           });
+          await saveSingleProductToGoogleSheet(updatedProduct);
+          if (updatedList) {
+            syncProductsToGoogleSheet(updatedList);
+          }
         };
 
         const handleDeleteProduct = (productId) => {
