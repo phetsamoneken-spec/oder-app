@@ -180,6 +180,18 @@
         }
       }
 
+      // Helper function ສຳລັບຈັດຮູບແບບ Web App URL ໃຫ້ຖືກຕ້ອງ ແລະ ລົງທ້າຍດ້ວຍ /exec ສະເໝີ
+      function getActiveGasUrl(customUrl) {
+        let raw = customUrl || localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL;
+        if (!raw || typeof raw !== 'string') return '';
+        let clean = raw.trim();
+        // ແປງໃຫ້ລົງທ້າຍດ້ວຍ /exec ຖ້າເປັນ Google Apps Script URL
+        if (clean.includes('script.google.com/macros/s/') && !clean.endsWith('/exec')) {
+          clean = clean.replace(/\/+$/, '') + '/exec';
+        }
+        return clean;
+      }
+
       // Helper function ສຳລັບເຊື່ອມຕໍ່ Apps Script ໂດຍກົງ (ເມື່ອ Run ຢູ່ Google Script)
       // ຫຼື fetch POST ຖ້າ run ຈາກພາຍນອກ
       async function syncOrderToGoogleSheet(order, customScriptUrl) {
@@ -194,7 +206,7 @@
         }
 
         // 2. ຖ້າ Run ແບບ Standalone ຫຼື ຜ່ານ External Browser URL
-        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL;
+        const scriptUrl = getActiveGasUrl(customScriptUrl);
         if (!scriptUrl) {
           return { success: false, reason: 'NO_SCRIPT_URL' };
         }
@@ -229,7 +241,7 @@
           });
         }
 
-        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL;
+        const scriptUrl = getActiveGasUrl(customScriptUrl);
         if (!scriptUrl) return { success: false };
 
         try {
@@ -282,7 +294,7 @@
           });
         }
 
-        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL;
+        const scriptUrl = getActiveGasUrl(customScriptUrl);
         if (!scriptUrl) return null;
 
         try {
@@ -307,10 +319,14 @@
           if (data && (data.status === 'success' || data.directUrl)) {
             return data;
           }
+          if (data && data.status === 'error') {
+            return data;
+          }
         } catch (err) {
           console.warn('Google Drive Image Upload Error:', err);
+          return { status: 'error', message: err.message || 'Network error' };
         }
-        return null;
+        return { status: 'error', message: 'Unknown upload error' };
       }
 
       // Helper function ສຳລັບບັນທຶກ ຫຼື ອັບເດດເມນູສິນຄ້າ 1 ລາຍການລົງ Google Sheet
@@ -324,7 +340,7 @@
           });
         }
 
-        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL;
+        const scriptUrl = getActiveGasUrl(customScriptUrl);
         if (!scriptUrl) return { success: false, reason: 'NO_SCRIPT_URL' };
 
         try {
@@ -361,7 +377,7 @@
           });
         }
 
-        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL;
+        const scriptUrl = getActiveGasUrl(customScriptUrl);
         if (!scriptUrl) return { success: false, reason: 'NO_SCRIPT_URL' };
 
         try {
@@ -398,7 +414,7 @@
           });
         }
 
-        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL;
+        const scriptUrl = getActiveGasUrl(customScriptUrl);
         if (!scriptUrl) {
           return { success: false, reason: 'NO_SCRIPT_URL' };
         }
@@ -437,7 +453,7 @@
           });
         }
 
-        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL;
+        const scriptUrl = getActiveGasUrl(customScriptUrl);
         if (!scriptUrl) {
           return { success: false, reason: 'NO_SCRIPT_URL' };
         }
@@ -482,7 +498,7 @@
           });
         }
 
-        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL;
+        const scriptUrl = getActiveGasUrl(customScriptUrl);
         if (!scriptUrl) return null;
 
         try {
@@ -514,7 +530,7 @@
           });
         }
 
-        const scriptUrl = customScriptUrl || localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL;
+        const scriptUrl = getActiveGasUrl(customScriptUrl);
         if (!scriptUrl) return null;
 
         try {
@@ -587,33 +603,102 @@
         }
       }
 
-      function compressImage(file, maxWidth = 640, quality = 0.75) {
+      // Helper ແປງລິ້ງ Google Drive ຫຼື ອື່ນໆ ເປັນ Direct Image URL ທີ່ບຣາວເຊີໂຫຼດໄດ້ 100%
+      function getDirectImageUrl(url) {
+        if (!url || typeof url !== 'string') return '';
+        url = url.trim();
+        if (!url || url === '[Image Data Base64]' || url === '[Base64 Image]') return '';
+        if (url.startsWith('data:image')) return url;
+
+        let fileId = '';
+        const matchFile = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+        if (matchFile) fileId = matchFile[1];
+        if (!fileId) {
+          const matchId = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+          if (matchId) fileId = matchId[1];
+        }
+        if (!fileId) {
+          const matchLh3 = url.match(/googleusercontent\.com\/d\/([a-zA-Z0-9_-]+)/);
+          if (matchLh3) fileId = matchLh3[1];
+        }
+        if (fileId) {
+          return `https://lh3.googleusercontent.com/d/${fileId}`;
+        }
+        return url;
+      }
+
+      // Handler ຈັດການກໍລະນີຮູບພາບໂຫຼດຜິດພາດ ພ້ອມລອງລິ້ງ Google Drive ສຳຮອງ
+      function handleImageLoadError(e, altName = '') {
+        const target = e.currentTarget || e.target;
+        if (!target) return;
+        const currentSrc = target.src || '';
+
+        const match = currentSrc.match(/googleusercontent\.com\/d\/([a-zA-Z0-9_-]+)/);
+        if (match && !target.dataset.triedFallback) {
+          target.dataset.triedFallback = 'true';
+          target.src = `https://drive.google.com/thumbnail?id=${match[1]}&sz=w800`;
+          return;
+        }
+
+        target.onerror = null;
+        target.style.display = 'none';
+        const parent = target.parentElement;
+        if (parent) {
+          const fallback = parent.querySelector('.fallback-placeholder, .row-fallback');
+          if (fallback) {
+            fallback.classList.remove('hidden');
+            fallback.classList.add('flex');
+          }
+        }
+      }
+
+      // ຟັງຊັນບີບອັດ ແລະ ປ່ຽນຮູບພາບເປັນ Base64 Data URL ທີ່ມີຄຸນນະພາບ
+      function compressImage(file, maxWidth = 800, quality = 0.82) {
         return new Promise((resolve, reject) => {
+          if (!file) {
+            reject(new Error('No file provided'));
+            return;
+          }
           const reader = new FileReader();
           reader.onload = (e) => {
+            const rawDataUrl = e.target?.result;
+            if (!rawDataUrl || typeof rawDataUrl !== 'string') {
+              reject(new Error('Failed to read image file'));
+              return;
+            }
             const img = new Image();
             img.onload = () => {
-              let width = img.width;
-              let height = img.height;
-              if (width > maxWidth) {
-                height = Math.round((height * maxWidth) / width);
-                width = maxWidth;
+              try {
+                let width = img.naturalWidth || img.width;
+                let height = img.naturalHeight || img.height;
+                if (width > maxWidth) {
+                  height = Math.round((height * maxWidth) / width);
+                  width = maxWidth;
+                }
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                  resolve(rawDataUrl);
+                  return;
+                }
+                // ພື້ນຫຼັງສີຂາວ ເພື່ອປ້ອງກັນຮູບ PNG ໂປ່ງໃສກາຍເປັນສີດຳ
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, width, height);
+                ctx.drawImage(img, 0, 0, width, height);
+                const compressed = canvas.toDataURL('image/jpeg', quality);
+                resolve(compressed);
+              } catch (canvasErr) {
+                resolve(rawDataUrl);
               }
-              const canvas = document.createElement('canvas');
-              canvas.width = width;
-              canvas.height = height;
-              const ctx = canvas.getContext('2d');
-              if (!ctx) {
-                resolve(e.target.result);
-                return;
-              }
-              ctx.drawImage(img, 0, 0, width, height);
-              resolve(canvas.toDataURL('image/jpeg', quality));
             };
-            img.onerror = reject;
-            img.src = e.target.result;
+            img.onerror = () => {
+              resolve(rawDataUrl);
+            };
+            img.src = rawDataUrl;
           };
-          reader.onerror = reject;
+          reader.onerror = () => reject(new Error('FileReader error'));
           reader.readAsDataURL(file);
         });
       }
@@ -1018,183 +1103,289 @@
         const isNativeGas = typeof google !== 'undefined' && !!(google.script && google.script.run);
         const [gasUrl, setGasUrl] = useState(() => localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL);
         const [status, setStatus] = useState(isNativeGas ? 'connected' : (localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL ? 'connected' : 'ready'));
-        const [isTesting, setIsTesting] = useState(false);
+        const [driveStatus, setDriveStatus] = useState('unknown'); // 'unknown', 'old_version', 'drive_ready', 'error'
+        const [driveDetails, setDriveDetails] = useState(null);
+        const [isTestingDrive, setIsTestingDrive] = useState(false);
+        const [testDriveResult, setTestDriveResult] = useState(null);
 
         if (!isOpen) return null;
 
         const handleSave = () => {
           vibrateSoft(25);
-          localStorage.setItem('lao_pos_gas_url', gasUrl.trim());
+          let clean = (gasUrl || '').trim();
+          if (clean && clean.includes('script.google.com/macros/s/') && !clean.endsWith('/exec')) {
+            clean = clean.replace(/\/+$/, '') + '/exec';
+            setGasUrl(clean);
+          }
+          if (clean) {
+            localStorage.setItem('lao_pos_gas_url', clean);
+          } else {
+            localStorage.removeItem('lao_pos_gas_url');
+          }
           onShowToast('ບັນທຶກ Apps Script Web App URL ສຳເລັດ!', 'success');
-          testConnection();
+          testConnection(clean);
         };
 
-        const testConnection = async () => {
+        const handleResetDefaultUrl = () => {
+          vibrateSoft(15);
+          localStorage.removeItem('lao_pos_gas_url');
+          setGasUrl(DEFAULT_GAS_URL);
+          setTestDriveResult(null);
+          onShowToast('ຄືນຄ່າ URL ເລີ່ມຕົ້ນແລ້ວ', 'info');
+          testConnection(DEFAULT_GAS_URL);
+        };
+
+        const testConnection = async (overrideUrl) => {
           if (isNativeGas) {
             setStatus('connected');
+            setDriveStatus('drive_ready');
             onShowToast('ກຳລັງ Run ຜ່ານ Apps Script ໂດຍກົງ (Native Direct Mode) ✓', 'success');
             return;
           }
-          if (!gasUrl.trim()) {
+          const targetUrl = getActiveGasUrl(overrideUrl || gasUrl);
+          if (!targetUrl) {
             setStatus('no_url');
+            setDriveStatus('error');
             return;
           }
           setIsTesting(true);
+          setTestDriveResult(null);
           try {
-            const testUrl = `${gasUrl.trim()}?action=ping&sheetId=${TARGET_SHEET_ID}`;
+            const testUrl = `${targetUrl}${targetUrl.includes('?') ? '&' : '?'}action=ping&sheetId=${TARGET_SHEET_ID}`;
             const res = await fetch(testUrl);
             const data = await res.json();
-            if (data.status === 'success') {
+            if (data && data.status === 'success') {
               setStatus('connected');
-              onShowToast('ເຊື່ອມຕໍ່ Google Sheet ສຳເລັດ 100%! ✓', 'success');
+              setDriveDetails(data);
+              // ກວດສອບວ່າມີ Folder ID ແລະ ເວີຊັ່ນ Drive Active ຫຼືບໍ່
+              if (data.folderId && data.folderId === '1JFlPMCT6FyANB_3XN7wFhaGIQK7NEU2x') {
+                setDriveStatus('drive_ready');
+                onShowToast('✅ ເຊື່ອມຕໍ່ Google Sheet & Drive (1JFlPMCT6FyANB_3XN7wFhaGIQK7NEU2x) ສຳເລັດ 100%!', 'success');
+              } else {
+                setDriveStatus('old_version');
+                onShowToast('⚠️ Web App ຍັງແລ່ນເວີຊັ່ນເກົ່າ (ບໍ່ມີ Drive). ກະລຸນາ Deploy "New version" ໃນ Apps Script!', 'warning');
+              }
             } else {
               setStatus('error');
+              setDriveStatus('error');
             }
           } catch (e) {
-            if (gasUrl.includes('/macros/s/')) {
-              setStatus('connected');
-              onShowToast('ເຊື່ອມຕໍ່ກັບ Google Apps Script URL ແລ້ວ!', 'success');
-            } else {
-              setStatus('error');
-            }
+            console.warn('Ping test error:', e);
+            setStatus('error');
+            setDriveStatus('error');
+            onShowToast('❌ ບໍ່ສາມາດເຊື່ອມຕໍ່ກັບ URL ນີ້ໄດ້! ກວດສອບວ່າ URL ຖືກຕ້ອງ ແລະ ເປີດສິດ Anyone ຫຼືບໍ່', 'error');
           } finally {
             setIsTesting(false);
           }
         };
 
+        const handleTestDirectDriveUpload = async () => {
+          vibrateSoft(20);
+          setIsTestingDrive(true);
+          setTestDriveResult(null);
+          try {
+            // ຮູບພາບທົດສອບ 1x1 Pixel PNG
+            const testPixel = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+            const uploadRes = await uploadImageToGoogleDrive(testPixel, 'Diagnostic_Test_File', 'menu', gasUrl.trim());
+            if (uploadRes && (uploadRes.status === 'success' || uploadRes.directUrl || uploadRes.fileId)) {
+              setTestDriveResult({
+                success: true,
+                fileId: uploadRes.fileId,
+                directUrl: uploadRes.directUrl,
+                viewUrl: uploadRes.viewUrl || (uploadRes.fileId ? `https://drive.google.com/file/d/${uploadRes.fileId}/view` : '')
+              });
+              setDriveStatus('drive_ready');
+              onShowToast('🎉 ທົດສອບອັບໂຫຼດເຂົ້າ Drive 1JFlPMCT6FyANB_3XN7wFhaGIQK7NEU2x ສຳເລັດ!', 'success');
+            } else {
+              setTestDriveResult({
+                success: false,
+                message: uploadRes?.message || 'ບໍ່ໄດ້ຮັບ File ID ຈາກ Google Drive'
+              });
+              onShowToast(`ທົດສອບບໍ່ສຳເລັດ: ${uploadRes?.message || 'Web App ຍັງບໍ່ຮອງຮັບ'}`, 'warning');
+            }
+          } catch (err) {
+            setTestDriveResult({
+              success: false,
+              message: err.message || err.toString()
+            });
+            onShowToast(`ຂໍ້ຜິດພາດ: ${err.message}`, 'error');
+          } finally {
+            setIsTestingDrive(false);
+          }
+        };
+
         return (
-          <div className="fixed inset-0 z-[96] flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs animate-fadeIn">
-            <div className="bg-white rounded-3xl max-w-sm w-full p-5 shadow-2xl border border-emerald-900/10 flex flex-col gap-3.5 max-h-[90vh] overflow-y-auto no-scrollbar">
+          <div className="fixed inset-0 z-[96] flex items-center justify-center p-3 pb-20 sm:pb-4 sm:p-4 bg-black/65 backdrop-blur-xs animate-fadeIn">
+            <div className="bg-white rounded-3xl max-w-sm sm:max-w-md w-full p-4 sm:p-5 shadow-2xl border border-emerald-900/10 flex flex-col gap-3 max-h-[88vh] overflow-y-auto no-scrollbar">
               <div className="flex items-center justify-between border-b pb-2">
                 <div className="flex items-center gap-2">
-                  <div className="w-9 h-9 rounded-xl bg-emerald-50 text-[#0f9d58] flex items-center justify-center font-black">
-                    <span className="material-symbols-outlined text-[22px]">table_chart</span>
+                  <div className="w-9 h-9 rounded-xl bg-emerald-50 text-[#0f9d58] flex items-center justify-center font-black shrink-0">
+                    <span className="material-symbols-outlined text-[22px]">cloud_sync</span>
                   </div>
                   <div>
-                    <h3 className="font-bold text-[15px] text-[#131b2e] leading-tight">ເຊື່ອມຕໍ່ Google Sheet</h3>
-                    <p className="text-[11px] text-gray-400">Google Sheet ID & Apps Script</p>
+                    <h3 className="font-bold text-[15px] text-[#131b2e] leading-tight">ເຊື່ອມຕໍ່ Google Sheet & Drive</h3>
+                    <p className="text-[11px] text-gray-400">ໂຟນເດີຮູບ: order app (1JFlPMCT6FyANB_3XN7wFhaGIQK7NEU2x)</p>
                   </div>
                 </div>
-                <button onClick={onClose} className="w-7 h-7 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-400">
+                <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-400 shrink-0">
                   <span className="material-symbols-outlined text-[18px]">close</span>
                 </button>
               </div>
 
-              {/* Sheet ID info card */}
-              <div className="bg-[#ecfdf5] p-3 rounded-2xl border border-[#a7f3d0] flex flex-col gap-1.5">
+              {/* Drive Folder card */}
+              <div className="bg-[#ecfdf5] p-3 rounded-2xl border border-[#a7f3d0] flex flex-col gap-1.5 shadow-2xs">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-[#006c49]">Google Sheet ID ຂອງທ່ານ:</span>
+                  <span className="font-bold text-[#006c49] flex items-center gap-1">
+                    <span className="material-symbols-outlined text-[16px] text-[#10b981]">folder_open</span>
+                    <span>ໂຟນເດີ Google Drive ປາຍທາງ:</span>
+                  </span>
                   <a
-                    href={GOOGLE_SHEET_URL}
+                    href="https://drive.google.com/drive/folders/1JFlPMCT6FyANB_3XN7wFhaGIQK7NEU2x"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-[11px] text-[#0f9d58] font-bold hover:underline flex items-center gap-0.5"
+                    className="text-[11px] text-[#006c49] font-bold hover:underline flex items-center gap-0.5"
                   >
-                    <span>ເປີດ Sheet</span>
+                    <span>ເປີດໂຟນເດີ</span>
                     <span className="material-symbols-outlined text-[13px]">open_in_new</span>
                   </a>
                 </div>
-                <div className="font-mono text-[11px] text-[#005236] bg-white/80 p-2 rounded-xl break-all select-all font-semibold border border-[#a7f3d0]/60">
-                  {TARGET_SHEET_ID}
+                <div className="font-mono text-[11px] text-[#005236] bg-white/90 p-2 rounded-xl break-all select-all font-bold border border-[#a7f3d0]/60 flex items-center justify-between gap-1">
+                  <span className="truncate">1JFlPMCT6FyANB_3XN7wFhaGIQK7NEU2x</span>
+                  <span className="text-[9px] bg-emerald-100 text-[#006c49] px-2 py-0.5 rounded-md font-bold shrink-0">order app</span>
                 </div>
               </div>
 
               {/* Status Badge */}
-              <div className={`p-3 rounded-2xl border flex items-center justify-between text-xs font-semibold ${
-                status === 'connected' || isNativeGas
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                  : 'bg-amber-50 text-amber-800 border-amber-200'
+              <div className={`p-3 rounded-2xl border flex flex-col gap-1.5 text-xs ${
+                driveStatus === 'drive_ready'
+                  ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                  : driveStatus === 'old_version'
+                  ? 'bg-amber-50 text-amber-950 border-amber-300'
+                  : 'bg-gray-50 text-gray-800 border-gray-200'
               }`}>
-                <div className="flex items-center gap-1.5">
-                  <span className={`w-2.5 h-2.5 rounded-full ${status === 'connected' || isNativeGas ? 'bg-[#10b981]' : 'bg-amber-500'} ${isTesting ? 'animate-ping' : ''}`}></span>
-                  <span>ສະຖານະ:</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`w-2.5 h-2.5 rounded-full ${
+                      driveStatus === 'drive_ready' ? 'bg-[#10b981]' : driveStatus === 'old_version' ? 'bg-amber-500 animate-pulse' : 'bg-gray-400'
+                    }`}></span>
+                    <span className="font-bold">ສະຖານະລະບົບ:</span>
+                  </div>
+                  <span className="font-bold font-mono">
+                    {driveStatus === 'drive_ready'
+                      ? '🟢 ພ້ອມອັບໂຫຼດລົງ Drive 100%'
+                      : driveStatus === 'old_version'
+                      ? '⚠️ Web App ຍັງແລ່ນເວີຊັ່ນເກົ່າ'
+                      : 'ກວດສອບການເຊື່ອມຕໍ່'}
+                  </span>
                 </div>
-                <span className="font-bold">
-                  {isNativeGas
-                    ? 'Apps Script Native (ເຊື່ອມຕໍ່ກົງ) ✓'
-                    : isTesting
-                    ? 'ກຳລັງທົດສອບ...'
-                    : status === 'connected'
-                    ? 'ເຊື່ອມຕໍ່ແລ້ວ (Connected) ✓'
-                    : gasUrl
-                    ? 'ພ້ອມສົ່ງຂໍ້ມູນ'
-                    : 'ລໍຖ້າໃສ່ Web App URL'}
-                </span>
+
+                {driveStatus === 'old_version' && (
+                  <div className="bg-white p-2.5 rounded-xl border border-amber-300 text-[11px] leading-relaxed text-amber-900 flex flex-col gap-1 mt-1">
+                    <span className="font-bold text-red-700">🚨 ສາເຫດທີ່ຮູບຍັງບໍ່ບັນທຶກລົງ Drive:</span>
+                    <span>Google Apps Script ຂອງທ່ານຍັງແລ່ນເວີຊັ່ນເກົ່າ (ບໍ່ມີລະບົບອັບໂຫຼດຮູບເຂົ້າ Drive ໂຟນເດີ 1JFlPMCT6FyANB_3XN7wFhaGIQK7NEU2x).</span>
+                    <span className="font-bold text-[#006c49] mt-0.5">ວິທີແກ້ໄຂ 3 ຂັ້ນຕອນ:</span>
+                    <ol className="list-decimal list-inside space-y-0.5 text-gray-800 font-semibold pl-1">
+                      <li>ເປີດ Google Apps Script &gt; ເລືອກຟັງຊັນ <code>testDriveAndSheetUpload</code> ແລ້ວກົດ <strong>▷ Run (ດຳເນີນການ)</strong> ເພື່ອອະນຸຍາດ Drive</li>
+                      <li>ກົດປຸ່ມສີຟ້າ <strong>Deploy (ນຳໄປໃຊ້) &gt; Manage deployments (ຈັດການການນຳໄປໃຊ້)</strong></li>
+                      <li>ກົດຮູບສໍ ✏️ (Edit) &gt; ທີ່ຊ່ອງ Version ເລືອກ <strong>"New version" (ເວີຊັນໃໝ່)</strong> ແລ້ວກົດ <strong>Deploy</strong></li>
+                    </ol>
+                  </div>
+                )}
               </div>
+
+              {/* Test Drive Upload Result Box */}
+              {testDriveResult && (
+                <div className={`p-3 rounded-2xl border text-xs flex flex-col gap-1.5 ${
+                  testDriveResult.success ? 'bg-emerald-50 border-emerald-300 text-emerald-900' : 'bg-rose-50 border-rose-300 text-rose-900'
+                }`}>
+                  <div className="flex items-center justify-between font-bold">
+                    <span>{testDriveResult.success ? '🎉 ຜົນການທົດສອບ Drive: ສຳເລັດ!' : '❌ ຜົນການທົດສອບ Drive: ບໍ່ສຳເລັດ'}</span>
+                    <button type="button" onClick={() => setTestDriveResult(null)} className="text-gray-400 hover:text-gray-600">✕</button>
+                  </div>
+                  {testDriveResult.success ? (
+                    <div className="flex flex-col gap-1 text-[11px]">
+                      <span>ໄຟລ໌ທົດສອບຖືກສ້າງລົງໃນ Drive ໂຟນເດີ 1JFlPMCT6FyANB_3XN7wFhaGIQK7NEU2x ຮຽບຮ້ອຍ:</span>
+                      <a
+                        href={testDriveResult.viewUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[#006c49] font-bold underline truncate flex items-center gap-1"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                        <span>ເປີດເບິ່ງໄຟລ໌ໃນ Google Drive ({testDriveResult.fileId})</span>
+                      </a>
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-rose-700">
+                      <span>ຂໍ້ຄວາມຈາກ Server: {testDriveResult.message}</span>
+                      <p className="mt-1 font-semibold">ກະລຸນາປະຕິບັດຕາມ 3 ຂັ້ນຕອນດ້ານເທິງໃນ Google Apps Script.</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Input: Google Apps Script Web App URL */}
               {!isNativeGas && (
-                <div className="flex flex-col gap-2">
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-600 block mb-1">
-                      GOOGLE APPS SCRIPT WEB APP URL (ຖ້າມີ)
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-gray-700">
+                      GOOGLE APPS SCRIPT WEB APP URL:
                     </label>
-                    <input
-                      type="url"
-                      value={gasUrl}
-                      onChange={(e) => setGasUrl(e.target.value)}
-                      placeholder="https://script.google.com/macros/s/.../exec"
-                      className="w-full px-3 py-2 bg-[#faf8ff] rounded-xl border border-gray-200 text-xs font-mono text-gray-800 focus:outline-none focus:ring-1 focus:ring-[#0f9d58]"
-                    />
+                    <button
+                      type="button"
+                      onClick={handleResetDefaultUrl}
+                      className="text-[10px] text-gray-400 hover:text-[#006c49] underline"
+                    >
+                      ຄືນຄ່າເລີ່ມຕົ້ນ
+                    </button>
                   </div>
+                  <input
+                    type="url"
+                    value={gasUrl}
+                    onChange={(e) => setGasUrl(e.target.value)}
+                    placeholder="https://script.google.com/macros/s/.../exec"
+                    className="w-full px-3 py-2 bg-[#faf8ff] rounded-xl border border-gray-200 text-xs font-mono text-gray-800 focus:outline-none focus:ring-1 focus:ring-[#0f9d58]"
+                  />
+                  <p className="text-[10px] text-gray-400">
+                    💡 ຖ້າທ່ານກົດ Deploy &gt; "New deployment", Google ຈະໃຫ້ URL ໃໝ່. ໃຫ້ນຳ URL ໃໝ່ມາວາງໃສ່ນີ້ ແລ້ວກົດ "ບັນທຶກ".
+                  </p>
                 </div>
               )}
 
-              {/* Setup guide */}
-              <div className="bg-[#faf8ff] p-3 rounded-2xl border border-gray-100 flex flex-col gap-2 text-[11px] text-gray-600">
-                <span className="font-bold text-[#0f9d58] flex items-center gap-1">
-                  <span className="material-symbols-outlined text-[15px]">tips_and_updates</span>
-                  <span>ວິທີສ້າງ 3 ຕາຕະລາງ (Orders, Cashiers, Menu) ໃນ Google Sheet:</span>
-                </span>
-                <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200 text-amber-900 text-[11px] leading-relaxed">
-                  <strong>💡 ຖ້າເປີດ Google Sheet ແລ້ວຍັງບໍ່ມີຕາຕະລາງ ຫຼື ຂໍ້ມູນຍັງບໍ່ເຂົ້າ:</strong>
-                  <ol className="list-decimal list-inside mt-1 space-y-1.5 text-gray-700">
-                    <li>ເປີດ Google Sheet &gt; ກົດເມນູ <strong>ສ່ວນຂະຫຍາຍ (Extensions) &gt; Apps Script</strong></li>
-                    <li>ກັອບປີ້ Code ຈາກໄຟລ໌ <code>Code.gs</code> ທັງໝົດມາວາງໃສ່ ແລ້ວກົດ 💾 <strong>Save (ບັນທຶກ)</strong></li>
-                    <li>ເລືອກຟັງຊັນ <strong>setupAllTables</strong> ແລ້ວກົດ <strong>▷ Run (ດຳເນີນການ)</strong> ພຽງ 1 ຄັ້ງ ຕາຕະລາງ <strong>Orders</strong>, <strong>Cashiers</strong>, ແລະ <strong>Menu</strong> ຈະຖືກສ້າງຂຶ້ນທັນທີ!</li>
-                    <li>
-                      <strong>ສຳຄັນຫຼາຍສຳລັບການ Deploy:</strong> ທຸກຄັ້ງທີ່ແກ້ Code ຕ້ອງກົດ <strong>Deploy &gt; Manage deployments (ຈັດການການນຳໄປໃຊ້) &gt; ກົດຮູບສໍ ✏️ (Edit) &gt; ເລືອກ Version: "New version" (ເວີຊັນໃໝ່) &gt; ກົດ Deploy</strong> ເພື່ອໃຫ້ Script ຮັບຂໍ້ມູນອໍເດີ ແລະ ເມນູໄດ້ຖືກຕ້ອງ!
-                    </li>
-                  </ol>
+              {/* Action Buttons */}
+              <div className="flex flex-col gap-2 pt-1">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={testConnection}
+                    disabled={isTesting || isTestingDrive}
+                    className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl text-xs flex items-center justify-center gap-1 active:scale-95 transition-all disabled:opacity-60"
+                  >
+                    <span className={`material-symbols-outlined text-[16px] ${isTesting ? 'animate-spin' : ''}`}>sync</span>
+                    <span>{isTesting ? 'ກຳລັງກວດສອບ...' : 'ກວດສອບເວີຊັ່ນ'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleTestDirectDriveUpload}
+                    disabled={isTesting || isTestingDrive}
+                    className="flex-1 py-2.5 bg-[#ecfdf5] hover:bg-emerald-100 text-[#006c49] border border-[#a7f3d0] font-bold rounded-xl text-xs flex items-center justify-center gap-1 active:scale-95 transition-all disabled:opacity-60"
+                    title="ທົດສອບອັບໂຫຼດຮູບພາບ 1 ໄຟລ໌ເຂົ້າໂຟນເດີ 1JFlPMCT6FyANB_3XN7wFhaGIQK7NEU2x ໂດຍກົງ"
+                  >
+                    <span className={`material-symbols-outlined text-[16px] ${isTestingDrive ? 'animate-spin' : ''}`}>
+                      {isTestingDrive ? 'progress_activity' : 'cloud_upload'}
+                    </span>
+                    <span>{isTestingDrive ? 'ກຳລັງອັບໂຫຼດ...' : '🧪 ທົດສອບອັບໂຫຼດ Drive'}</span>
+                  </button>
                 </div>
-                <div className="flex items-center justify-between bg-emerald-50/80 p-2 rounded-xl border border-emerald-200/60 text-[11px]">
-                  <span className="font-bold text-[#006c49]">3 ແທັບທີ່ຮອງຮັບ:</span>
-                  <span className="text-[#005236] font-medium">Orders | Cashiers | Menu</span>
-                </div>
-              </div>
 
-              {onSyncAll && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    vibrateSoft(20);
-                    onSyncAll();
-                  }}
-                  className="w-full py-2.5 bg-[#006c49] hover:bg-[#005236] text-white font-bold rounded-xl text-xs shadow-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all"
-                >
-                  <span className="material-symbols-outlined text-[17px]">cloud_sync</span>
-                  <span>ຊິ້ງທຸກຂໍ້ມູນລົງ Google Sheet (ອໍເດີ + ພະນັກງານ + ເມນູ)</span>
-                </button>
-              )}
-
-              <div className="flex gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={testConnection}
-                  disabled={isTesting}
-                  className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl text-xs flex items-center justify-center gap-1"
-                >
-                  <span className={`material-symbols-outlined text-[16px] ${isTesting ? 'animate-spin' : ''}`}>sync</span>
-                  <span>ທົດສອບ</span>
-                </button>
                 {!isNativeGas && (
                   <button
                     type="button"
                     onClick={handleSave}
-                    className="flex-1 py-2.5 bg-[#0f9d58] hover:bg-[#0c8046] text-white font-bold rounded-xl text-xs shadow-sm flex items-center justify-center gap-1 active:scale-95"
+                    className="w-full py-2.5 bg-[#006c49] hover:bg-[#005236] text-white font-bold rounded-xl text-xs shadow-sm flex items-center justify-center gap-1 active:scale-95 transition-all"
                   >
                     <span className="material-symbols-outlined text-[16px]">save</span>
-                    <span>ບັນທຶກ</span>
+                    <span>ບັນທຶກ URL ນີ້</span>
                   </button>
                 )}
               </div>
@@ -2575,16 +2766,11 @@
                         <div className="relative w-full aspect-square rounded-xl overflow-hidden bg-[#ecfdf5] mb-2 shadow-inner">
                           {product.image && product.image.trim() && product.image !== '[Image Data Base64]' ? (
                             <img
-                              src={product.image}
+                              src={getDirectImageUrl(product.image)}
                               alt={product.name}
                               className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                               loading="lazy"
-                              onError={(e) => {
-                                e.target.onerror = null;
-                                e.target.style.display = 'none';
-                                const fallback = e.target.parentElement?.querySelector('.fallback-placeholder');
-                                if (fallback) fallback.classList.remove('hidden');
-                              }}
+                              onError={handleImageLoadError}
                             />
                           ) : null}
                           <div
@@ -3007,13 +3193,10 @@
                     <div key={item.product.id} className="bg-white rounded-2xl p-3 shadow-xs border border-gray-100 flex items-center gap-3">
                       <div className="w-14 h-14 rounded-xl overflow-hidden bg-[#ecfdf5] shrink-0 border border-gray-100 flex items-center justify-center">
                         <img
-                          src={item.product.image}
+                          src={getDirectImageUrl(item.product.image)}
                           alt={item.product.name}
                           className="w-full h-full object-cover"
-                          onError={(e) => {
-                            e.target.onerror = null;
-                            e.target.src = 'https://placehold.co/100x100/ecfdf5/006c49?text=' + encodeURIComponent(item.product.name.slice(0, 3));
-                          }}
+                          onError={handleImageLoadError}
                         />
                       </div>
                       <div className="flex-1 min-w-0">
@@ -4072,19 +4255,30 @@
           }, 60);
         };
 
-        const handlePhotoFile = async (e) => {
+        const handlePhotoFile = (e) => {
           const file = e.target.files?.[0];
           if (!file) return;
-          try {
-            setIsCompressing(true);
-            const compressed = await compressImage(file, 250, 0.85);
-            setPhoto(compressed);
-            if (onShowToast) onShowToast('ອັບໂຫຼດຮູບສຳເລັດ! 📸', 'success');
-          } catch (err) {
-            if (onShowToast) onShowToast('ເກີດຂໍ້ຜິດພາດໃນການອັບໂຫຼດຮູບ', 'error');
-          } finally {
-            setIsCompressing(false);
-          }
+
+          setIsCompressing(true);
+          const instantReader = new FileReader();
+          instantReader.onload = (ev) => {
+            if (ev.target?.result) {
+              setPhoto(ev.target.result);
+            }
+          };
+          instantReader.readAsDataURL(file);
+
+          compressImage(file, 400, 0.85)
+            .then((compressed) => {
+              if (compressed) setPhoto(compressed);
+              if (onShowToast) onShowToast('ເລືອກຮູບພະນັກງານສຳເລັດ! 📸', 'success');
+            })
+            .catch((err) => {
+              console.warn('Cashier photo compress error:', err);
+            })
+            .finally(() => {
+              setIsCompressing(false);
+            });
         };
 
         const handleSave = async (e) => {
@@ -4188,8 +4382,8 @@
 
         return (
           <div className="fixed inset-0 z-[1250] flex items-center justify-center p-3 pb-24 sm:pb-4 sm:p-4 bg-black/70 backdrop-blur-xs animate-fadeIn">
-            <input type="file" ref={cameraInputRef} accept="image/*" capture="user" onChange={handlePhotoFile} className="hidden" />
-            <input type="file" ref={galleryInputRef} accept="image/*" onChange={handlePhotoFile} className="hidden" />
+            <input type="file" ref={cameraInputRef} accept="image/*" capture="user" onChange={handlePhotoFile} onClick={(e) => { e.target.value = null; }} className="hidden" />
+            <input type="file" ref={galleryInputRef} accept="image/*" onChange={handlePhotoFile} onClick={(e) => { e.target.value = null; }} className="hidden" />
 
             <div className="bg-white rounded-3xl max-w-sm sm:max-w-md w-full p-4 sm:p-5 shadow-2xl border border-emerald-900/10 flex flex-col gap-3.5 max-h-[88vh] overflow-y-auto no-scrollbar">
               {/* Header */}
@@ -5768,6 +5962,7 @@
         };
 
         const fileInputRef = useRef(null);
+        const [isNewImageSelected, setIsNewImageSelected] = useState(false);
 
         const openAddModal = () => {
           vibrateSoft(15);
@@ -5780,6 +5975,7 @@
           setImage(PRESET_FOOD_PHOTOS[0].url);
           setBadgeText('');
           setBadgeType('bestseller');
+          setIsNewImageSelected(false);
           setIsSavingProduct(false);
           setSaveProductStatus('');
           setIsModalOpen(true);
@@ -5796,24 +5992,53 @@
           setImage(prod.image || '');
           setBadgeText(prod.badgeText || '');
           setBadgeType(prod.badgeType || 'bestseller');
+          setIsNewImageSelected(false);
           setIsSavingProduct(false);
           setSaveProductStatus('');
           setIsModalOpen(true);
         };
 
-        const handleImageUpload = async (e) => {
+        const handleImageUpload = (e) => {
           const file = e.target.files?.[0];
           if (!file) return;
-          try {
-            setIsCompressing(true);
-            const compressed = await compressImage(file, 400, 0.8);
-            setImage(compressed);
-            onShowToast('ເລືອກຮູບພາບສຳເລັດ! ກົດ "ບັນທຶກ" ເພື່ອອັບໂຫຼດລົງ Google Drive ☁️', 'success');
-          } catch (err) {
-            onShowToast('ເກີດຂໍ້ຜິດພາດໃນການອັບໂຫຼດຮູບພາບ', 'error');
-          } finally {
-            setIsCompressing(false);
+
+          const isImg = file.type?.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name || '');
+          if (!isImg) {
+            onShowToast('ກະລຸນາເລືອກໄຟລ໌ຮູບພາບ (JPG, PNG, WebP)', 'warning');
+            return;
           }
+
+          if (file.size > 15 * 1024 * 1024) {
+            onShowToast('ຂະໜາດຮູບພາບໃຫຍ່ເກີນໄປ (ສູງສຸດ 15MB)', 'warning');
+            return;
+          }
+
+          setIsCompressing(true);
+          // 1. ອ່ານ ແລະ ສະແດງຮູບຕົວຢ່າງທັນທີ (Immediate Preview - Requirement 1)
+          const instantReader = new FileReader();
+          instantReader.onload = (ev) => {
+            if (ev.target?.result) {
+              setImage(ev.target.result);
+              setIsNewImageSelected(true);
+            }
+          };
+          instantReader.readAsDataURL(file);
+
+          // 2. ປັບຂະໜາດ ແລະ ແປງເປັນ Base64 Data URL ທີ່ສະອາດພ້ອມສົ່ງ (Requirement 2)
+          compressImage(file, 800, 0.82)
+            .then((compressed) => {
+              if (compressed) {
+                setImage(compressed);
+                setIsNewImageSelected(true);
+              }
+              onShowToast('ເລືອກຮູບພາບສຳເລັດ! ກົດ "ບັນທຶກ" ເພື່ອອັບໂຫຼດລົງ Google Drive ☁️', 'success');
+            })
+            .catch((err) => {
+              console.warn('Compress fallback error:', err);
+            })
+            .finally(() => {
+              setIsCompressing(false);
+            });
         };
 
         const handleSaveProduct = async (e) => {
@@ -5830,24 +6055,29 @@
           }
 
           setIsSavingProduct(true);
-          let finalImageUrl = image || PRESET_FOOD_PHOTOS[0].url;
+          // ຮັກສາລິ້ງຮູບເກົ່າໄວ້ 100% ຖ້າບໍ່ໄດ້ເລືອກຮູບໃໝ່ (Requirement 6)
+          let finalImageUrl = isNewImageSelected
+            ? image
+            : (editingProduct ? (editingProduct.image || image) : (image || PRESET_FOOD_PHOTOS[0].url));
           let driveFileId = editingProduct?.driveFileId || '';
           let driveViewUrl = editingProduct?.driveViewUrl || '';
 
-          // 1. ຖ້າເປັນຮູບພາບ Base64: ໃຫ້ອັບໂຫຼດລົງ Google Drive ໂຟນເດີ 1JFlPMCT6FyANB_3XN7wFhaGIQK7NEU2x ກ່ອນ!
-          if (finalImageUrl && finalImageUrl.startsWith('data:image')) {
+          // 1. ຖ້າມີການເລືອກຮູບໃໝ່ ແລະ ເປັນ Base64: ໃຫ້ອັບໂຫຼດລົງ Google Drive ໂຟນເດີ 1JFlPMCT6FyANB_3XN7wFhaGIQK7NEU2x ກ່ອນ! (Requirements 3, 4, 5)
+          if (isNewImageSelected && finalImageUrl && finalImageUrl.startsWith('data:image')) {
             setSaveProductStatus('ກຳລັງອັບໂຫຼດຮູບເຂົ້າ Google Drive... ☁️');
             try {
               const driveRes = await uploadImageToGoogleDrive(finalImageUrl, 'Menu_' + name.trim(), 'menu');
-              if (driveRes && (driveRes.directUrl || driveRes.status === 'success')) {
-                finalImageUrl = driveRes.directUrl;
+              if (driveRes && (driveRes.directUrl || driveRes.status === 'success' || driveRes.fileId)) {
+                finalImageUrl = driveRes.directUrl || (driveRes.fileId ? `https://lh3.googleusercontent.com/d/${driveRes.fileId}` : finalImageUrl);
                 driveFileId = driveRes.fileId || driveFileId;
-                driveViewUrl = driveRes.viewUrl || driveViewUrl;
-              } else {
-                console.warn('Drive image upload returned fallback:', driveRes);
+                driveViewUrl = driveRes.viewUrl || (driveFileId ? `https://drive.google.com/file/d/${driveFileId}/view` : driveViewUrl);
+              } else if (driveRes && driveRes.status === 'error') {
+                console.warn('Drive upload error:', driveRes.message);
+                onShowToast(`ອັບໂຫຼດຮູບເຂົ້າ Drive ບໍ່ສຳເລັດ: ${driveRes.message}`, 'warning');
               }
             } catch (uploadErr) {
               console.warn('Drive image upload error:', uploadErr);
+              onShowToast('ເກີດຂໍ້ຜິດພາດໃນການອັບໂຫຼດຮູບພາບ', 'warning');
             }
           }
 
@@ -5870,10 +6100,10 @@
           try {
             if (editingProduct) {
               await onUpdateProduct(productPayload);
-              onShowToast(`ແກ້ໄຂ ແລະ ບັນທຶກ "${productPayload.name}" ລົງ Drive & Sheet ສຳເລັດ! 🎉`, 'success');
+              onShowToast(`ແກ້ໄຂ ແລະ ບັນທຶກ "${productPayload.name}" ສຳເລັດ! 🎉`, 'success');
             } else {
               await onAddProduct(productPayload);
-              onShowToast(`ເພີ່ມເມນູໃໝ່ "${productPayload.name}" ລົງ Drive & Sheet ສຳເລັດ! 🎉`, 'success');
+              onShowToast(`ເພີ່ມເມນູໃໝ່ "${productPayload.name}" ສຳເລັດ! 🎉`, 'success');
             }
             setIsModalOpen(false);
           } catch (err) {
@@ -6034,15 +6264,10 @@
                       <div className="relative w-14 h-14 rounded-xl overflow-hidden bg-[#ecfdf5] shrink-0 border border-gray-100 shadow-inner flex items-center justify-center">
                         {prod.image && prod.image.trim() && prod.image !== '[Image Data Base64]' ? (
                           <img
-                            src={prod.image}
+                            src={getDirectImageUrl(prod.image)}
                             alt={prod.name}
                             className="w-full h-full object-cover"
-                            onError={(e) => {
-                              e.target.onerror = null;
-                              e.target.style.display = 'none';
-                              const fallback = e.target.parentElement?.querySelector('.row-fallback');
-                              if (fallback) fallback.classList.remove('hidden');
-                            }}
+                            onError={handleImageLoadError}
                           />
                         ) : null}
                         <div
@@ -6120,6 +6345,7 @@
                   ref={fileInputRef}
                   accept="image/*"
                   onChange={handleImageUpload}
+                  onClick={(e) => { e.target.value = null; }}
                   className="hidden"
                 />
 
@@ -6153,7 +6379,14 @@
                     {/* Compact Image Preview & Picker */}
                     <div className="bg-[#faf8ff] p-3 rounded-2xl border border-gray-100 flex flex-col gap-2.5">
                       <div className="flex items-center justify-between">
-                        <span className="font-bold text-gray-700">ຮູບພາບເມນູ:</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-gray-700">ຮູບພາບເມນູ:</span>
+                          {isNewImageSelected && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-emerald-100 text-[#006c49]">
+                              ຮູບໃໝ່
+                            </span>
+                          )}
+                        </div>
                         <button
                           type="button"
                           onClick={() => fileInputRef.current?.click()}
@@ -6169,18 +6402,21 @@
                       <div className="relative w-full h-36 rounded-xl overflow-hidden bg-white border border-gray-200 shadow-inner flex items-center justify-center group">
                         {image ? (
                           <img
-                            src={image}
+                            src={getDirectImageUrl(image)}
                             alt="Preview"
                             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                            onError={(e) => {
-                              e.target.onerror = null;
-                              e.target.src = 'https://placehold.co/400x300/ecfdf5/006c49?text=Food+Image';
-                            }}
+                            onError={handleImageLoadError}
                           />
                         ) : (
                           <div className="flex flex-col items-center gap-1 text-gray-300">
                             <span className="material-symbols-outlined text-[36px]">image</span>
                             <span className="text-[10px] text-gray-400">ຍັງບໍ່ມີຮູບ</span>
+                          </div>
+                        )}
+                        {isCompressing && (
+                          <div className="absolute inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center text-white text-xs font-bold gap-1.5">
+                            <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
+                            <span>ກຳລັງປະມວນຜົນຮູບ...</span>
                           </div>
                         )}
                         <button
@@ -6204,6 +6440,7 @@
                               onClick={() => {
                                 vibrateSoft(5);
                                 setImage(p.url);
+                                setIsNewImageSelected(true);
                               }}
                               className={`p-1 rounded-xl border flex flex-col items-center gap-1 transition-all ${
                                 image === p.url
@@ -6545,26 +6782,26 @@
         };
 
         const handleAddProduct = async (newProduct) => {
-          let updatedList;
-          setProducts((prev) => {
-            updatedList = [newProduct, ...prev.filter((p) => p.id !== newProduct.id)];
-            return updatedList;
-          });
-          await saveSingleProductToGoogleSheet(newProduct);
-          if (updatedList) {
-            syncProductsToGoogleSheet(updatedList);
+          setProducts((prev) => [newProduct, ...prev.filter((p) => p.id !== newProduct.id)]);
+          const res = await saveSingleProductToGoogleSheet(newProduct);
+          if (res && res.data && res.data.product) {
+            const sp = res.data.product;
+            setProducts((prev) =>
+              prev.map((p) => (p.id === newProduct.id ? { ...p, image: sp.image || p.image, driveViewUrl: sp.driveViewUrl || p.driveViewUrl } : p))
+            );
           }
         };
 
         const handleUpdateProduct = async (updatedProduct) => {
-          let updatedList;
-          setProducts((prev) => {
-            updatedList = prev.map((p) => (p.id === updatedProduct.id ? updatedProduct : p));
-            return updatedList;
-          });
-          await saveSingleProductToGoogleSheet(updatedProduct);
-          if (updatedList) {
-            syncProductsToGoogleSheet(updatedList);
+          setProducts((prev) =>
+            prev.map((p) => (p.id === updatedProduct.id ? updatedProduct : p))
+          );
+          const res = await saveSingleProductToGoogleSheet(updatedProduct);
+          if (res && res.data && res.data.product) {
+            const sp = res.data.product;
+            setProducts((prev) =>
+              prev.map((p) => (p.id === updatedProduct.id ? { ...p, image: sp.image || p.image, driveViewUrl: sp.driveViewUrl || p.driveViewUrl } : p))
+            );
           }
         };
 
