@@ -444,6 +444,21 @@ function doGet(e) {
       return jsonResponse(getCashiersFromSheet());
     }
 
+    // ດຶງ ແລະ ຈັບຄູ່ຮູບຈາກ Google Drive ໂຟນເດີ "order app" ມາໃສ່ເມນູໃນ Sheet
+    if (e.parameter.action === 'sync_drive_images' || e.parameter.action === 'sync_images') {
+      return jsonResponse(syncDriveImagesToSheet());
+    }
+
+    // ລາຍການໄຟລ໌ຮູບທັງໝົດໃນ Google Drive ໂຟນເດີ "order app"
+    if (e.parameter.action === 'list_drive_images' || e.parameter.action === 'get_drive_photos') {
+      return jsonResponse(listDriveImages());
+    }
+
+    // ກຳນົດຮູບຈາກ Drive ໃຫ້ສິນຄ້າໂດຍກົງ
+    if (e.parameter.action === 'assign_drive_image') {
+      return jsonResponse(assignDriveImageToProduct(e.parameter.productId, e.parameter.fileId));
+    }
+
     if (e.parameter.format === 'json') {
       return jsonResponse({
         status: 'online',
@@ -546,6 +561,21 @@ function doPost(e) {
     }
     if (payload.action === 'get_cashiers') {
       return jsonResponse(getCashiersFromSheet());
+    }
+
+    // ດຶງ ແລະ ຈັບຄູ່ຮູບຈາກ Google Drive ໂຟນເດີ "order app" ມາໃສ່ເມນູໃນ Sheet
+    if (payload.action === 'sync_drive_images' || payload.action === 'sync_images') {
+      return jsonResponse(syncDriveImagesToSheet());
+    }
+
+    // ລາຍການໄຟລ໌ຮູບທັງໝົດໃນ Google Drive ໂຟນເດີ "order app"
+    if (payload.action === 'list_drive_images' || payload.action === 'get_drive_photos') {
+      return jsonResponse(listDriveImages());
+    }
+
+    // ກຳນົດຮູບຈາກ Drive ໃຫ້ສິນຄ້າໂດຍກົງ
+    if (payload.action === 'assign_drive_image') {
+      return jsonResponse(assignDriveImageToProduct(payload.productId, payload.fileId));
     }
 
     // 5. ອັບເດດສະຖານະອໍເດີ
@@ -1200,9 +1230,269 @@ function getMenuFromSheet() {
       });
     }
 
+    // 5. ອັດຕະໂນມັດ: ຖ້າມີສິນຄ້າທີ່ຍັງບໍ່ມີຮູບ (image === '') ໃຫ້ກວດສອບ ແລະ ດຶງຮູບຈາກ Google Drive "order app" ມາໃສ່ທັນທີ
+    const hasMissingImages = products.some(function(p) { return !p.image; });
+    if (hasMissingImages) {
+      try {
+        const folder = getTargetDriveFolder();
+        if (folder) {
+          const files = folder.getFiles();
+          const drivePhotos = [];
+          while (files.hasNext()) {
+            const f = files.next();
+            const mime = (f.getMimeType() || '').toLowerCase();
+            if (mime.indexOf('image/') === 0 || f.getName().match(/\.(jpe?g|png|webp|gif)$/i)) {
+              try { f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
+              const fid = f.getId();
+              drivePhotos.push({
+                fileId: fid,
+                name: f.getName(),
+                thumbnailUrl: 'https://drive.google.com/thumbnail?id=' + fid + '&sz=w800',
+                viewUrl: f.getUrl(),
+                time: f.getLastUpdated().getTime()
+              });
+            }
+          }
+
+          if (drivePhotos.length > 0) {
+            drivePhotos.sort(function(a, b) { return b.time - a.time; });
+            for (let i = 0; i < products.length; i++) {
+              const p = products[i];
+              if (!p.image) {
+                const pNameClean = (p.name || '').replace(/[\s\-_]/g, '').toLowerCase();
+                let match = null;
+                for (let k = 0; k < drivePhotos.length; k++) {
+                  const dp = drivePhotos[k];
+                  const dpNameClean = dp.name.replace(/[\s\-_]/g, '').toLowerCase();
+                  if (dpNameClean.indexOf(pNameClean) !== -1 || pNameClean.indexOf(dpNameClean.replace(/\.[a-z0-9]+$/, '')) !== -1 || dp.name.indexOf(p.id) !== -1) {
+                    match = dp;
+                    break;
+                  }
+                }
+                if (match) {
+                  p.image = match.thumbnailUrl;
+                  p.driveFileId = match.fileId;
+                  p.driveViewUrl = match.viewUrl;
+                  try {
+                    sheet.getRange(i + 2, 10).setValue(match.thumbnailUrl);
+                    sheet.getRange(i + 2, 11).setValue(match.viewUrl);
+                  } catch (e) {}
+                }
+              }
+            }
+          }
+        }
+      } catch (autoErr) {
+        Logger.log('Drive auto-resolution warning: ' + autoErr);
+      }
+    }
+
     return { status: 'success', products: products };
   } catch (e) {
     return { status: 'error', message: e.toString() };
+  }
+}
+
+/**
+ * 🔄 Function ດຶງຮູບຈາກ Google Drive ໂຟນເດີ "order app" ມາຈັບຄູ່ກັບເມນູສິນຄ້າໃນ Sheet ອັດຕະໂນມັດ
+ */
+function syncDriveImagesToSheet() {
+  const lock = LockService.getScriptLock();
+  lock.tryLock(30000);
+  try {
+    const folder = getTargetDriveFolder();
+    if (!folder) {
+      return { status: 'error', message: 'ບໍ່ພົບໂຟນເດີ Drive ID: ' + DRIVE_FOLDER_ID };
+    }
+
+    try {
+      folder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (e) {}
+
+    const files = folder.getFiles();
+    const drivePhotos = [];
+    while (files.hasNext()) {
+      const f = files.next();
+      const mime = (f.getMimeType() || '').toLowerCase();
+      if (mime.indexOf('image/') === 0 || f.getName().match(/\.(jpe?g|png|webp|gif)$/i)) {
+        try {
+          f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        } catch (e) {}
+        const fid = f.getId();
+        drivePhotos.push({
+          id: fid,
+          fileId: fid,
+          name: f.getName(),
+          thumbnailUrl: 'https://drive.google.com/thumbnail?id=' + fid + '&sz=w800',
+          directUrl: 'https://lh3.googleusercontent.com/d/' + fid,
+          viewUrl: f.getUrl(),
+          updated: f.getLastUpdated().getTime()
+        });
+      }
+    }
+
+    drivePhotos.sort(function(a, b) { return b.updated - a.updated; });
+
+    const ss = getTargetSpreadsheet();
+    let sheet = ss.getSheetByName('Menu');
+    if (!sheet) {
+      sheet = setupMenuTable(ss);
+    }
+
+    const data = sheet.getDataRange().getValues();
+    let updatedCount = 0;
+    const matchedProducts = [];
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const prodId = String(row[0] || '').trim();
+      const prodName = String(row[1] || '').trim();
+
+      if (!prodName && !prodId) continue;
+
+      let matchedFile = null;
+      const pNameClean = prodName.replace(/[\s\-_]/g, '').toLowerCase();
+
+      for (let j = 0; j < drivePhotos.length; j++) {
+        const photo = drivePhotos[j];
+        const fNameClean = photo.name.replace(/[\s\-_]/g, '').toLowerCase();
+
+        if (fNameClean.indexOf(pNameClean) !== -1 || pNameClean.indexOf(fNameClean.replace(/\.[a-z0-9]+$/, '')) !== -1 ||
+            (prodId && photo.name.indexOf(prodId) !== -1)) {
+          matchedFile = photo;
+          break;
+        }
+      }
+
+      if (matchedFile) {
+        const bestUrl = 'https://drive.google.com/thumbnail?id=' + matchedFile.id + '&sz=w800';
+        sheet.getRange(i + 1, 10).setValue(bestUrl);
+        sheet.getRange(i + 1, 11).setValue(matchedFile.viewUrl);
+        updatedCount++;
+        matchedProducts.push({
+          id: prodId,
+          name: prodName,
+          matchedFile: matchedFile.name,
+          image: bestUrl,
+          driveViewUrl: matchedFile.viewUrl
+        });
+      }
+    }
+
+    return {
+      status: 'success',
+      message: 'ດຶງຮູບພາບຈາກ Google Drive ' + drivePhotos.length + ' ຮູບ ແລະ ອັບເດດໃຫ້ເມນູ ' + updatedCount + ' ລາຍການສຳເລັດແລ້ວ!',
+      totalDrivePhotos: drivePhotos.length,
+      syncedCount: updatedCount,
+      matchedProducts: matchedProducts,
+      drivePhotos: drivePhotos
+    };
+  } catch (err) {
+    return { status: 'error', message: err.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * 📁 Function ລາຍການໄຟລ໌ຮູບທັງໝົດໃນ Google Drive ໂຟນເດີ "order app"
+ */
+function listDriveImages() {
+  try {
+    const folder = getTargetDriveFolder();
+    if (!folder) return { status: 'error', message: 'Drive folder not found', files: [] };
+
+    try {
+      folder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (e) {}
+
+    const files = folder.getFiles();
+    const list = [];
+    while (files.hasNext()) {
+      const f = files.next();
+      const mime = (f.getMimeType() || '').toLowerCase();
+      if (mime.indexOf('image/') === 0 || f.getName().match(/\.(jpe?g|png|webp|gif)$/i)) {
+        try {
+          f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        } catch (e) {}
+        const fid = f.getId();
+        list.push({
+          fileId: fid,
+          id: fid,
+          name: f.getName(),
+          size: f.getSize(),
+          thumbnailUrl: 'https://drive.google.com/thumbnail?id=' + fid + '&sz=w800',
+          directUrl: 'https://lh3.googleusercontent.com/d/' + fid,
+          viewUrl: f.getUrl(),
+          dateCreated: f.getDateCreated().toISOString()
+        });
+      }
+    }
+
+    list.sort(function(a, b) { return new Date(b.dateCreated).getTime() - new Date(a.dateCreated).getTime(); });
+    return {
+      status: 'success',
+      folderId: DRIVE_FOLDER_ID,
+      folderName: folder.getName(),
+      count: list.length,
+      files: list
+    };
+  } catch (err) {
+    return { status: 'error', message: err.toString(), files: [] };
+  }
+}
+
+/**
+ * 🎯 Function ກຳນົດຮູບຈາກ Google Drive ໃຫ້ເມນູສິນຄ້າ 1 ລາຍການໂດຍກົງ
+ */
+function assignDriveImageToProduct(productId, fileId) {
+  if (!productId || !fileId) {
+    return { status: 'error', message: 'Missing productId or fileId' };
+  }
+  const lock = LockService.getScriptLock();
+  lock.tryLock(15000);
+  try {
+    const ss = getTargetSpreadsheet();
+    const sheet = ss.getSheetByName('Menu');
+    if (!sheet) return { status: 'error', message: 'Sheet Menu not found' };
+
+    try {
+      const file = DriveApp.getFileById(fileId);
+      if (file) {
+        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      }
+    } catch (e) {}
+
+    const data = sheet.getDataRange().getValues();
+    let targetRow = -1;
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).trim() === String(productId).trim()) {
+        targetRow = i + 1;
+        break;
+      }
+    }
+
+    if (targetRow === -1) {
+      return { status: 'error', message: 'Product ID not found: ' + productId };
+    }
+
+    const imgUrl = 'https://drive.google.com/thumbnail?id=' + fileId + '&sz=w800';
+    const viewUrl = 'https://drive.google.com/file/d/' + fileId + '/view';
+
+    sheet.getRange(targetRow, 10).setValue(imgUrl);
+    sheet.getRange(targetRow, 11).setValue(viewUrl);
+
+    return {
+      status: 'success',
+      productId: productId,
+      fileId: fileId,
+      image: imgUrl,
+      driveViewUrl: viewUrl
+    };
+  } catch (err) {
+    return { status: 'error', message: err.toString() };
+  } finally {
+    lock.releaseLock();
   }
 }
 
