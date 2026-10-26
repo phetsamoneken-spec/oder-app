@@ -1216,6 +1216,7 @@
         const [status, setStatus] = useState(isNativeGas ? 'connected' : (localStorage.getItem('lao_pos_gas_url') || DEFAULT_GAS_URL ? 'connected' : 'ready'));
         const [driveStatus, setDriveStatus] = useState('unknown'); // 'unknown', 'old_version', 'drive_ready', 'error'
         const [driveDetails, setDriveDetails] = useState(null);
+        const [isTesting, setIsTesting] = useState(false);
         const [isTestingDrive, setIsTestingDrive] = useState(false);
         const [testDriveResult, setTestDriveResult] = useState(null);
         const [isCopyingCode, setIsCopyingCode] = useState(false);
@@ -7181,6 +7182,15 @@
           });
         };
 
+        const handleReloadMenuFromSheetAction = async () => {
+          const sheetProducts = await fetchProductsFromGoogleSheet();
+          if (sheetProducts && Array.isArray(sheetProducts) && sheetProducts.length > 0) {
+            setProducts(sheetProducts);
+            return true;
+          }
+          return false;
+        };
+
         const handleResetProducts = () => {
           setProducts(INITIAL_PRODUCTS);
           syncProductsToGoogleSheet(INITIAL_PRODUCTS);
@@ -7330,6 +7340,7 @@
                   onDeleteProduct={handleDeleteProduct}
                   onResetProducts={handleResetProducts}
                   onShowToast={showToast}
+                  onReloadMenu={handleReloadMenuFromSheetAction}
                 />
               )}
             </main>
