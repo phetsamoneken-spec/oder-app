@@ -543,13 +543,28 @@
         try {
           const res = await fetch(`${scriptUrl}?action=sync_drive_images`);
           const text = await res.text();
+          if (text && (text.includes('<!DOCTYPE') || text.includes('<html'))) {
+            return {
+              status: 'error',
+              isOldVersion: true,
+              message: 'Google Apps Script ຍັງແລ່ນເວີຊັ່ນເກົ່າ (ບໍ່ມີລະບົບ sync_drive_images)'
+            };
+          }
           try {
             return JSON.parse(text);
           } catch (e) {
             return { status: 'error', message: text };
           }
         } catch (err) {
-          return { status: 'error', message: err.message || err };
+          const errMsg = err?.message || String(err);
+          const isFetchFailed = errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError');
+          return {
+            status: 'error',
+            isOldVersion: isFetchFailed,
+            message: isFetchFailed
+              ? 'Google Apps Script ຍັງແລ່ນເວີຊັ່ນເກົ່າ ຫຼື ຍັງບໍ່ໄດ້ເປີດສິດ Anyone (Failed to fetch)'
+              : errMsg
+          };
         }
       }
 
@@ -1203,6 +1218,26 @@
         const [driveDetails, setDriveDetails] = useState(null);
         const [isTestingDrive, setIsTestingDrive] = useState(false);
         const [testDriveResult, setTestDriveResult] = useState(null);
+        const [isCopyingCode, setIsCopyingCode] = useState(false);
+        const [copiedCode, setCopiedCode] = useState(false);
+
+        const handleCopyCodeGs = async () => {
+          vibrateSoft(20);
+          setIsCopyingCode(true);
+          try {
+            const res = await fetch('./Code.gs');
+            if (res.ok) {
+              const text = await res.text();
+              await navigator.clipboard.writeText(text);
+              setCopiedCode(true);
+              onShowToast('ກັອບປີ້ໂຄ້ດ Code.gs ທັງໝົດລົງ Clipboard ຮຽບຮ້ອຍ! 📋', 'success');
+              setTimeout(() => setCopiedCode(false), 4000);
+              return;
+            }
+          } catch (e) {}
+          onShowToast('ກະລຸນາກັອບປີ້ໂຄ້ດ Code.gs ຈາກທີ່ສົ່ງໃຫ້ໃນແຊັດ', 'info');
+          setIsCopyingCode(false);
+        };
 
         if (!isOpen) return null;
 
@@ -1375,18 +1410,49 @@
                   </span>
                 </div>
 
-                {driveStatus === 'old_version' && (
-                  <div className="bg-white p-2.5 rounded-xl border border-amber-300 text-[11px] leading-relaxed text-amber-900 flex flex-col gap-1 mt-1">
-                    <span className="font-bold text-red-700">🚨 ສາເຫດທີ່ຮູບຍັງບໍ່ບັນທຶກລົງ Drive:</span>
-                    <span>Google Apps Script ຂອງທ່ານຍັງແລ່ນເວີຊັ່ນເກົ່າ (ບໍ່ມີລະບົບອັບໂຫຼດຮູບເຂົ້າ Drive ໂຟນເດີ 1JFlPMCT6FyANB_3XN7wFhaGIQK7NEU2x).</span>
-                    <span className="font-bold text-[#006c49] mt-0.5">ວິທີແກ້ໄຂ 3 ຂັ້ນຕອນ:</span>
-                    <ol className="list-decimal list-inside space-y-0.5 text-gray-800 font-semibold pl-1">
-                      <li>ເປີດ Google Apps Script &gt; ເລືອກຟັງຊັນ <code>testDriveAndSheetUpload</code> ແລ້ວກົດ <strong>▷ Run (ດຳເນີນການ)</strong> ເພື່ອອະນຸຍາດ Drive</li>
-                      <li>ກົດປຸ່ມສີຟ້າ <strong>Deploy (ນຳໄປໃຊ້) &gt; Manage deployments (ຈັດການການນຳໄປໃຊ້)</strong></li>
-                      <li>ກົດຮູບສໍ ✏️ (Edit) &gt; ທີ່ຊ່ອງ Version ເລືອກ <strong>"New version" (ເວີຊັນໃໝ່)</strong> ແລ້ວກົດ <strong>Deploy</strong></li>
-                    </ol>
+                <div className="bg-amber-50 border border-amber-300 rounded-2xl p-3 text-[11px] leading-relaxed text-amber-950 flex flex-col gap-2 mt-1">
+                  <div className="flex items-center gap-1.5 font-bold text-red-700 text-xs">
+                    <span className="material-symbols-outlined text-[18px]">build</span>
+                    <span>🚨 ວິທີແກ້ໄຂ "Failed to fetch" ຫຼື ດຶງຮູບ Drive ບໍ່ໄດ້:</span>
                   </div>
-                )}
+                  <p className="text-gray-800">
+                    Google Apps Script ຂອງທ່ານຍັງແລ່ນເວີຊັ່ນເກົ່າ (ບໍ່ມີຟັງຊັນ <code>sync_drive_images</code>). ໃຫ້ແກ້ໄຂດ້ວຍ 3 ຂັ້ນຕອນງ່າຍໆ:
+                  </p>
+                  <ol className="list-decimal list-inside space-y-1 text-gray-800 font-semibold pl-1">
+                    <li>ກົດປຸ່ມ <strong>"📋 ກັອບປີ້ Code.gs"</strong> ດ້ານລຸ່ມນີ້</li>
+                    <li>ເປີດ Google Sheet ➔ <strong>Extensions ➔ Apps Script</strong> ➔ ກົດ Select All ແລ້ວ Paste ວາງທັບ ➔ ກົດ 💾 Save</li>
+                    <li>ກົດ <strong>Deploy ➔ Manage deployments ➔ ✏️ Edit ➔ Version: "New version" ➔ Deploy</strong></li>
+                  </ol>
+                  <div className="flex gap-1.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleCopyCodeGs}
+                      disabled={isCopyingCode}
+                      className="flex-1 py-2 px-3 bg-[#006c49] hover:bg-[#005236] text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs active:scale-95 transition-all"
+                    >
+                      <span className="material-symbols-outlined text-[15px]">content_copy</span>
+                      <span>{copiedCode ? 'ກັອບປີ້ແລ້ວ ✓' : '📋 ກັອບປີ້ Code.gs'}</span>
+                    </button>
+                    <a
+                      href="./Code.gs"
+                      download="Code.gs"
+                      className="py-2 px-3 bg-white hover:bg-emerald-50 text-[#006c49] border border-[#a7f3d0] font-bold rounded-xl text-xs flex items-center justify-center gap-1 active:scale-95 shadow-2xs"
+                      title="ດາວໂຫຼດໄຟລ໌ Code.gs"
+                    >
+                      <span className="material-symbols-outlined text-[15px]">download</span>
+                      <span>ໂຫຼດໄຟລ໌</span>
+                    </a>
+                    <a
+                      href="https://docs.google.com/spreadsheets/d/12CV_NOtFAsj9xZ6LnzzEqi5PjbPPVegOpFOC9B8m7gY/edit"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="py-2 px-2.5 bg-emerald-100 hover:bg-emerald-200 text-[#005236] font-bold rounded-xl text-xs flex items-center justify-center gap-1 active:scale-95 shadow-2xs"
+                    >
+                      <span>ເປີດ Sheet</span>
+                      <span className="material-symbols-outlined text-[13px]">open_in_new</span>
+                    </a>
+                  </div>
+                </div>
               </div>
 
               {/* Test Drive Upload Result Box */}
@@ -6018,6 +6084,7 @@
         products,
         profile,
         onOpenStoreSettings,
+        onOpenGoogleSheetModal,
         onAddProduct,
         onUpdateProduct,
         onDeleteProduct,
@@ -6064,6 +6131,9 @@
               if (onReloadMenu) {
                 await onReloadMenu();
               }
+            } else if (res?.isOldVersion) {
+              onShowToast('⚠️ Web App ຍັງແລ່ນເວີຊັ່ນເກົ່າ (ບໍ່ມີຟັງຊັນ Drive)! ກະລຸນາ Deploy "New version" ໃນ Apps Script', 'warning');
+              if (onOpenGoogleSheetModal) onOpenGoogleSheetModal();
             } else {
               onShowToast(`ບໍ່ສາມາດດຶງຮູບຈາກ Drive: ${res?.message || 'ກະລຸນາກວດສອບສິດ Drive'}`, 'warning');
             }
@@ -7118,16 +7188,29 @@
 
         const handleQuickSyncAll = async () => {
           vibrateSoft(20);
-          showToast(`ກຳລັງຊິ້ງຂໍ້ມູນທັງໝົດກັບ Google Sheet ID: ${TARGET_SHEET_ID.slice(0, 10)}...`, 'info');
+          showToast(`ກຳລັງອັບເດດເມນູ ແລະ ຂໍ້ມູນຫຼ້າສຸດຈາກ Google Sheet & Drive... ☁️`, 'info');
           try {
+            // ດຶງເມນູ ແລະ ລາຍຊື່ພະນັກງານຫຼ້າສຸດຈາກ Google Sheet
+            const [sheetProducts, sheetCashiers] = await Promise.all([
+              fetchProductsFromGoogleSheet(),
+              fetchCashiersFromGoogleSheet(),
+            ]);
+            let updated = false;
+            if (sheetProducts && Array.isArray(sheetProducts) && sheetProducts.length > 0) {
+              setProducts(sheetProducts);
+              updated = true;
+            }
+            if (sheetCashiers && Array.isArray(sheetCashiers) && sheetCashiers.length > 0) {
+              setCashiers(sheetCashiers);
+              updated = true;
+            }
+            // ຊິ້ງອໍເດີທັງໝົດຂຶ້ນ Sheet
             for (const o of orders) {
               await syncOrderToGoogleSheet(o);
             }
-            await syncCashiersToGoogleSheet(cashiers);
-            await syncProductsToGoogleSheet(products);
-            showToast('ຊິ້ງຂໍ້ມູນທັງໝົດ (ອໍເດີ, ພະນັກງານ, ເມນູ) ລົງ Google Sheet ຮຽບຮ້ອຍ! 📊', 'success');
+            showToast(updated ? 'ອັບເດດເມນູ ແລະ ຮູບພາບຫຼ້າສຸດສຳເລັດ! 🎉' : 'ເຊື່ອມຕໍ່ Google Sheet ຮຽບຮ້ອຍ', 'success');
           } catch (e) {
-            showToast('ເກີດຂໍ້ຜິດພາດໃນການຊິ້ງຂໍ້ມູນ', 'error');
+            showToast('ເກີດຂໍ້ຜິດພາດໃນການອັບເດດຂໍ້ມູນ', 'error');
           }
         };
 
@@ -7241,6 +7324,7 @@
                   products={products}
                   profile={profile}
                   onOpenStoreSettings={() => { vibrateSoft(); setIsStoreSettingsOpen(true); }}
+                  onOpenGoogleSheetModal={() => { vibrateSoft(); setIsGoogleSheetModalOpen(true); }}
                   onAddProduct={handleAddProduct}
                   onUpdateProduct={handleUpdateProduct}
                   onDeleteProduct={handleDeleteProduct}
