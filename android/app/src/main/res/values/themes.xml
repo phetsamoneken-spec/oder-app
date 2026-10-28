@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme with Splash Screen support -->
+    <style name="Theme.BeerlaoPOS" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/beerlao_green</item>
+        <item name="colorPrimaryVariant">@color/beerlao_green_dark</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorSecondary">@color/beerlao_gold</item>
+        <item name="android:statusBarColor">@color/beerlao_gold</item>
+        <item name="android:navigationBarColor">@color/beerlao_gold</item>
+        <item name="android:windowBackground">@drawable/splash_background</item>
+    </style>
+
+    <!-- Main Fullscreen Theme after splash loads -->
+    <style name="Theme.BeerlaoPOS.Fullscreen" parent="Theme.BeerlaoPOS">
+        <item name="android:windowBackground">@color/bg_light</item>
+        <item name="android:windowTranslucentStatus">false</item>
+        <item name="android:windowTranslucentNavigation">false</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+</resources>

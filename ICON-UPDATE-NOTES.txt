@@ -1,0 +1,16 @@
+LBC ORDER FLAT APP ICON UPDATE
+
+What changed:
+- Replaced Android launcher icons in android/app/src/main/res/mipmap-*.
+- Replaced Android adaptive launcher foreground drawable.
+- Replaced PWA icons in icons/ and public/icons/ (standard and maskable sizes).
+- Updated favicons and Apple touch icons.
+- Updated the icon-generation script to use public/assets/aistudio/lbc_order_flat_icon_1024.png instead of the glossy icon.
+- Bumped the service-worker cache name to LBC-Order-v10-flat-app-icon so browsers can refresh cached icons.
+
+To see the new icon on Android:
+1. Build a new APK from this project in Android Studio.
+2. Install/update the APK. If Android still shows the previous icon, uninstall the old app first, then install the new APK.
+3. For an installed PWA, refresh the website and if needed remove the old home-screen shortcut and install it again.
+
+Note: The ZIP contains updated source assets. It is not a prebuilt APK.

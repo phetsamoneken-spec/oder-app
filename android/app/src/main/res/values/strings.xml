@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Beerlao POS</string>
+    <string name="offline_title">ບໍ່ສາມາດເຊື່ອມຕໍ່ອິນເຕີເນັດ</string>
+    <string name="offline_message">ກະລຸນາກວດສອບສັນຍານ Wi-Fi ຫຼື Cellular ຂອງທ່ານ ແລ້ວກົດລອງໃໝ່</string>
+    <string name="retry">ລອງໃໝ່ອີກຄັ້ງ</string>
+    <string name="exit_confirm_title">ອອກຈາກແອັບ Beerlao POS?</string>
+    <string name="exit_confirm_message">ທ່ານແນ່ໃຈບໍ່ວ່າຕ້ອງການປິດລະບົບຂາຍໜ້າຮ້ານ?</string>
+    <string name="cancel">ຍົກເລີກ</string>
+    <string name="exit">ອອກຈາກແອັບ</string>
+    <string name="whatsapp_not_installed">ບໍ່ພົບແອັບ WhatsApp ໃນອຸປະກອນຂອງທ່ານ</string>
+    <string name="permission_location_rationale">ແອັບຕ້ອງການສິດພິກັດ GPS ເພື່ອບັນທຶກສະຖານທີ່ຮ້ານ ແລະ ສົ່ງອໍເດີຈັດສົ່ງ</string>
+</resources>
