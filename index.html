@@ -233,14 +233,15 @@
       // Google Sheet ID ທີ່ກຳນົດ
       const TARGET_SHEET_ID = '12CV_NOtFAsj9xZ6LnzzEqi5PjbPPVegOpFOC9B8m7gY';
       const GOOGLE_SHEET_URL = `https://docs.google.com/spreadsheets/d/${TARGET_SHEET_ID}/edit`;
-      const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwxId3wCy47CCbzGpULOXY-ByvNntuPdqaROgMhJcvxH9bZrq2jX4FsnM-r_we8MoFr/exec';
+      const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzeh2f5Nh__A1sPq9gZWLqGcQws9RLwN-6w-lQHJmCXxh63bHN9EOaW-vmCURtSLEM9/exec';
 
       // Migrate stored URL to the verified active deployment URL if empty or outdated
       try {
         const savedGasUrl = localStorage.getItem('lao_pos_gas_url') || '';
         if (
           !savedGasUrl ||
-          !savedGasUrl.includes('AKfycbwxId3wCy47CCbzGpULOXY-ByvNntuPdqaROgMhJcvxH9bZrq2jX4FsnM-r_we8MoFr')
+          savedGasUrl.includes('AKfycbwxId3wCy47CCbzGpULOXY-ByvNntuPdqaROgMhJcvxH9bZrq2jX4FsnM-r_we8MoFr') ||
+          !savedGasUrl.includes('AKfycbzeh2f5Nh__A1sPq9gZWLqGcQws9RLwN-6w-lQHJmCXxh63bHN9EOaW-vmCURtSLEM9')
         ) {
           localStorage.setItem('lao_pos_gas_url', DEFAULT_GAS_URL);
         }
@@ -347,6 +348,51 @@
         }
       }
 
+      // 🛡️ ລະບົບປ້ອງກັນບິນ ແລະ ເມນູທີ່ລຶບແລ້ວບໍ່ໃຫ້ເດັງກັບມາ (Tombstone Cache)
+      function getDeletedOrderIds() {
+        try {
+          const raw = localStorage.getItem('lao_pos_deleted_order_ids');
+          if (raw) return new Set(JSON.parse(raw));
+        } catch (e) {}
+        return new Set();
+      }
+
+      function markOrderAsDeletedLocally(orderId) {
+        if (!orderId) return;
+        try {
+          const set = getDeletedOrderIds();
+          set.add(String(orderId).trim());
+          localStorage.setItem('lao_pos_deleted_order_ids', JSON.stringify(Array.from(set)));
+        } catch (e) {}
+      }
+
+      function markAllOrdersAsDeletedLocally(orderIds) {
+        try {
+          const set = getDeletedOrderIds();
+          (orderIds || []).forEach((id) => {
+            if (id) set.add(String(id).trim());
+          });
+          localStorage.setItem('lao_pos_deleted_order_ids', JSON.stringify(Array.from(set)));
+        } catch (e) {}
+      }
+
+      function getDeletedProductIds() {
+        try {
+          const raw = localStorage.getItem('lao_pos_deleted_product_ids');
+          if (raw) return new Set(JSON.parse(raw));
+        } catch (e) {}
+        return new Set();
+      }
+
+      function markProductAsDeletedLocally(productId) {
+        if (!productId) return;
+        try {
+          const set = getDeletedProductIds();
+          set.add(String(productId).trim());
+          localStorage.setItem('lao_pos_deleted_product_ids', JSON.stringify(Array.from(set)));
+        } catch (e) {}
+      }
+
       // Helper function ສຳລັບລຶບບິນ 1 ລາຍການອອກຈາກ Google Sheet
       async function deleteOrderFromGoogleSheet(orderId, customScriptUrl) {
         if (typeof google !== 'undefined' && google.script && google.script.run) {
@@ -360,7 +406,8 @@
         const scriptUrl = getActiveGasUrl(customScriptUrl);
         if (!scriptUrl) return { success: false };
         try {
-          await fetch(scriptUrl, {
+          // 1. POST
+          fetch(scriptUrl, {
             method: 'POST',
             mode: 'no-cors',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -369,7 +416,11 @@
               sheetId: TARGET_SHEET_ID,
               orderId: orderId,
             }),
-          });
+          }).catch(() => {});
+          // 2. GET fallback
+          try {
+            fetch(`${scriptUrl}?action=delete_order&orderId=${encodeURIComponent(orderId)}&sheetId=${TARGET_SHEET_ID}`, { mode: 'no-cors' }).catch(() => {});
+          } catch (e) {}
           return { success: true };
         } catch (err) {
           console.warn('Google Sheet Delete Order Error:', err);
@@ -390,7 +441,7 @@
         const scriptUrl = getActiveGasUrl(customScriptUrl);
         if (!scriptUrl) return { success: false };
         try {
-          await fetch(scriptUrl, {
+          fetch(scriptUrl, {
             method: 'POST',
             mode: 'no-cors',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -398,7 +449,10 @@
               action: 'clear_all_orders',
               sheetId: TARGET_SHEET_ID,
             }),
-          });
+          }).catch(() => {});
+          try {
+            fetch(`${scriptUrl}?action=clear_all_orders&sheetId=${TARGET_SHEET_ID}`, { mode: 'no-cors' }).catch(() => {});
+          } catch (e) {}
           return { success: true };
         } catch (err) {
           console.warn('Google Sheet Clear Orders Error:', err);
@@ -7859,7 +7913,13 @@
         const [orders, setOrders] = useState(() => {
           try {
             const saved = localStorage.getItem('lao_pos_orders');
-            if (saved) return JSON.parse(saved);
+            if (saved) {
+              const list = JSON.parse(saved);
+              if (Array.isArray(list)) {
+                const deletedIds = getDeletedOrderIds();
+                return list.filter((o) => !deletedIds.has(o.id));
+              }
+            }
           } catch (e) {}
           return INITIAL_DEMO_ORDERS;
         });
@@ -7926,15 +7986,36 @@
         const knownOrderIdsRef = useRef(new Set((orders || []).map((o) => o.id)));
         const isInitialLoadDoneRef = useRef(false);
 
-        // 🔄 Function ສຳລັບດຶງປະຫວັດບິນ ແລະ ກວດສອບອໍເດີໃໝ່ແບບ Realtime
+        // 🔄 Function ສຳລັບດຶງປະຫວັດບິນ ແລະ ກວດສອບອໍເດີໃໝ່ແບບ Realtime (ພ້ອມລະບົບປ້ອງກັນບິນທີ່ລຶບບໍ່ໃຫ້ເດັງກັບມາ)
         const syncOrdersRealtime = async (isManual = false) => {
           if (isManual) setIsSyncingOrders(true);
           try {
             const sheetOrders = await fetchOrdersFromGoogleSheet(undefined, products);
             if (sheetOrders && Array.isArray(sheetOrders)) {
+              const deletedIds = getDeletedOrderIds();
+              // ກັ່ນຕອງບິນທີ່ຖືກລຶບແລ້ວອອກ ເພື່ອບໍ່ໃຫ້ບິນເກົ່າທີ່ລຶບໄປແລ້ວເດັງກັບມາ
+              const activeOrders = sheetOrders.filter((o) => !deletedIds.has(o.id));
+
+              // ຖ້າບິນທີ່ລຶບ ຫາຍອອກຈາກ Google Sheet ແທ້ໆແລ້ວ ໃຫ້ລ້າງ ID ອອກຈາກ deletedIds ໄດ້
+              if (deletedIds.size > 0) {
+                const sheetIdSet = new Set(sheetOrders.map((o) => o.id));
+                let changed = false;
+                for (const dId of deletedIds) {
+                  if (!sheetIdSet.has(dId)) {
+                    deletedIds.delete(dId);
+                    changed = true;
+                  }
+                }
+                if (changed) {
+                  try {
+                    localStorage.setItem('lao_pos_deleted_order_ids', JSON.stringify(Array.from(deletedIds)));
+                  } catch (e) {}
+                }
+              }
+
               // ກວດສອບວ່າມີອໍເດີໃໝ່ເຂົ້າມາຫຼືບໍ່ (ສຳລັບແຈ້ງເຕືອນສຽງ ແລະ toast)
               if (isInitialLoadDoneRef.current) {
-                const newOrders = sheetOrders.filter((o) => !knownOrderIdsRef.current.has(o.id));
+                const newOrders = activeOrders.filter((o) => !knownOrderIdsRef.current.has(o.id));
                 if (newOrders.length > 0) {
                   playFeedbackSound('order');
                   vibrateSoft(40);
@@ -7943,14 +8024,14 @@
               }
 
               // ອັບເດດລາຍການ ID ທີ່ຮັບຮູ້ແລ້ວ
-              knownOrderIdsRef.current = new Set(sheetOrders.map((o) => o.id));
+              knownOrderIdsRef.current = new Set(activeOrders.map((o) => o.id));
               isInitialLoadDoneRef.current = true;
-              setOrders(sheetOrders);
+              setOrders(activeOrders);
 
               if (isManual) {
-                showToast(`ດຶງປະຫວັດບິນຈາກ Google Sheet ສຳເລັດ ${sheetOrders.length} ບິນ! 📋`, 'success');
+                showToast(`ດຶງປະຫວັດບິນຈາກ Google Sheet ສຳເລັດ ${activeOrders.length} ບິນ! 📋`, 'success');
               }
-              return sheetOrders;
+              return activeOrders;
             } else if (isManual) {
               showToast('ບໍ່ພົບປະຫວັດບິນໃໝ່ໃນ Google Sheet', 'info');
             }
@@ -7973,11 +8054,13 @@
           try {
             const sheetProducts = await fetchProductsFromGoogleSheet();
             if (sheetProducts && Array.isArray(sheetProducts) && sheetProducts.length > 0) {
+              const deletedProductIds = getDeletedProductIds();
+              const activeProducts = sheetProducts.filter((p) => !deletedProductIds.has(p.id));
               setProducts((prev) => {
                 const prevSig = prev.map((p) => `${p.id}_${p.name}_${p.price}_${p.image}`).join('|');
-                const newSig = sheetProducts.map((p) => `${p.id}_${p.name}_${p.price}_${p.image}`).join('|');
+                const newSig = activeProducts.map((p) => `${p.id}_${p.name}_${p.price}_${p.image}`).join('|');
                 if (prevSig !== newSig) {
-                  return sheetProducts;
+                  return activeProducts;
                 }
                 return prev;
               });
@@ -8189,6 +8272,7 @@
         };
 
         const handleDeleteProduct = (productId) => {
+          markProductAsDeletedLocally(productId);
           setProducts((prev) => {
             const next = prev.filter((p) => p.id !== productId);
             deleteProductFromGoogleSheet(productId);
@@ -8380,9 +8464,10 @@
                       setIsOwnerAuthModalOpen(true);
                       return;
                     }
+                    markOrderAsDeletedLocally(id);
                     setOrders((prev) => prev.filter((o) => o.id !== id));
                     deleteOrderFromGoogleSheet(id);
-                    showToast(`ລຶບບິນ ${id} ອອກຈາກແອັບ ແລະ Google Sheet ແລ້ວ 🗑️`, 'info');
+                    showToast(`ລຶບບິນ ${id} ສຳເລັດແລ້ວ! 🗑️`, 'info');
                   }}
                   onClearAllOrders={() => {
                     if (!isOwnerUnlocked) {
@@ -8390,9 +8475,10 @@
                       setIsOwnerAuthModalOpen(true);
                       return;
                     }
+                    markAllOrdersAsDeletedLocally(orders.map((o) => o.id));
                     setOrders([]);
                     clearAllOrdersFromGoogleSheet();
-                    showToast('ລຶບປະຫວັດບິນທັງໝົດໃນ Google Sheet ຮຽບຮ້ອຍແລ້ວ 🗑️', 'info');
+                    showToast('ລຶບປະຫວັດບິນທັງໝົດຮຽບຮ້ອຍແລ້ວ 🗑️', 'info');
                   }}
                   onToggleOrderStatus={handleToggleOrderStatus}
                   profile={profile}
