@@ -347,6 +347,100 @@
         }
       }
 
+      // Helper function ສຳລັບລຶບບິນ 1 ລາຍການອອກຈາກ Google Sheet
+      async function deleteOrderFromGoogleSheet(orderId, customScriptUrl) {
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          return new Promise((resolve) => {
+            google.script.run
+              .withSuccessHandler((res) => resolve(res))
+              .withFailureHandler((err) => resolve({ status: 'error', error: err }))
+              .deleteOrderFromClient(orderId);
+          });
+        }
+        const scriptUrl = getActiveGasUrl(customScriptUrl);
+        if (!scriptUrl) return { success: false };
+        try {
+          await fetch(scriptUrl, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'delete_order',
+              sheetId: TARGET_SHEET_ID,
+              orderId: orderId,
+            }),
+          });
+          return { success: true };
+        } catch (err) {
+          console.warn('Google Sheet Delete Order Error:', err);
+          return { success: false };
+        }
+      }
+
+      // Helper function ສຳລັບລຶບປະຫວັດບິນທັງໝົດອອກຈາກ Google Sheet
+      async function clearAllOrdersFromGoogleSheet(customScriptUrl) {
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          return new Promise((resolve) => {
+            google.script.run
+              .withSuccessHandler((res) => resolve(res))
+              .withFailureHandler((err) => resolve({ status: 'error', error: err }))
+              .clearAllOrdersFromClient();
+          });
+        }
+        const scriptUrl = getActiveGasUrl(customScriptUrl);
+        if (!scriptUrl) return { success: false };
+        try {
+          await fetch(scriptUrl, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'clear_all_orders',
+              sheetId: TARGET_SHEET_ID,
+            }),
+          });
+          return { success: true };
+        } catch (err) {
+          console.warn('Google Sheet Clear Orders Error:', err);
+          return { success: false };
+        }
+      }
+
+      // Helper function ສຳລັບລຶບເມນູ 1 ລາຍການອອກຈາກ Google Sheet
+      async function deleteProductFromGoogleSheet(productId, customScriptUrl) {
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          return new Promise((resolve) => {
+            google.script.run
+              .withSuccessHandler((res) => resolve(res))
+              .withFailureHandler((err) => resolve({ status: 'error', error: err }))
+              .deleteProductFromClient(productId);
+          });
+        }
+        const scriptUrl = getActiveGasUrl(customScriptUrl);
+        if (!scriptUrl) return { success: false };
+        try {
+          // 1. POST
+          fetch(scriptUrl, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'delete_product',
+              sheetId: TARGET_SHEET_ID,
+              productId: productId,
+            }),
+          }).catch(() => {});
+          // 2. GET fallback
+          try {
+            fetch(`${scriptUrl}?action=delete_product&productId=${encodeURIComponent(productId)}&sheetId=${TARGET_SHEET_ID}`, { mode: 'no-cors' }).catch(() => {});
+          } catch (e) {}
+          return { success: true };
+        } catch (err) {
+          console.warn('Google Sheet Delete Product Error:', err);
+          return { success: false };
+        }
+      }
+
       // Helper function ສຳລັບອັບໂຫຼດຮູບພາບເຂົ້າ Google Drive ໂຟນເດີ "order app" (ID: 1JFlPMCT6FyANB_3XN7wFhaGIQK7NEU2x)
       async function uploadImageToGoogleDrive(base64Data, filename = 'image', type = 'menu', customScriptUrl) {
         if (!base64Data || typeof base64Data !== 'string') return null;
@@ -583,31 +677,91 @@
         }
 
         const scriptUrl = getActiveGasUrl(customScriptUrl);
-        if (!scriptUrl) return null;
+        if (scriptUrl) {
+          try {
+            const res = await fetch(`${scriptUrl}?action=get_menu`);
+            const data = await res.json();
+            if (data && data.status === 'success' && Array.isArray(data.products) && data.products.length > 0) {
+              // ຖ້າມີເມນູທີ່ບໍ່ມີຮູບ ໃຫ້ລອງດຶງຮູບຈາກ Google Drive ໂຟນເດີ "order app" ມາຈັບຄູ່
+              const missingImgs = data.products.some((p) => !p.image);
+              if (missingImgs) {
+                try {
+                  const driveRes = await syncDriveImagesFromAppsScript(scriptUrl);
+                  if (driveRes && driveRes.status === 'success' && driveRes.syncedCount > 0) {
+                    const updatedRes = await fetch(`${scriptUrl}?action=get_menu`);
+                    const updatedData = await updatedRes.json();
+                    if (updatedData && updatedData.status === 'success' && Array.isArray(updatedData.products)) {
+                      return updatedData.products;
+                    }
+                  }
+                } catch (e) {}
+              }
+              return data.products;
+            }
+          } catch (err) {
+            console.warn('Google Sheet Fetch Menu Error:', err);
+          }
+        }
 
+        // Fallback: ດຶງໂດຍກົງຈາກ Google Sheet Visualization API ແທັບ "Menu"
         try {
-          const res = await fetch(`${scriptUrl}?action=get_menu`);
-          const data = await res.json();
-          if (data && data.status === 'success' && Array.isArray(data.products) && data.products.length > 0) {
-            // ຖ້າມີເມນູທີ່ບໍ່ມີຮູບ ໃຫ້ລອງດຶງຮູບຈາກ Google Drive ໂຟນເດີ "order app" ມາຈັບຄູ່
-            const missingImgs = data.products.some((p) => !p.image);
-            if (missingImgs) {
-              try {
-                const driveRes = await syncDriveImagesFromAppsScript(scriptUrl);
-                if (driveRes && driveRes.status === 'success' && driveRes.syncedCount > 0) {
-                  const updatedRes = await fetch(`${scriptUrl}?action=get_menu`);
-                  const updatedData = await updatedRes.json();
-                  if (updatedData && updatedData.status === 'success' && Array.isArray(updatedData.products)) {
-                    return updatedData.products;
+          const gvizUrl = `https://docs.google.com/spreadsheets/d/${TARGET_SHEET_ID}/gviz/tq?tqx=out:json&sheet=Menu&t=${Date.now()}`;
+          const res = await fetch(gvizUrl);
+          const rawText = await res.text();
+          const jsonStr = rawText.substring(rawText.indexOf('{'), rawText.lastIndexOf('}') + 1);
+          if (jsonStr) {
+            const parsed = JSON.parse(jsonStr);
+            if (parsed && parsed.table && Array.isArray(parsed.table.rows)) {
+              const items = [];
+              const rows = parsed.table.rows;
+              for (let i = 0; i < rows.length; i++) {
+                const r = rows[i];
+                if (!r || !r.c) continue;
+                const getVal = (col) => (r.c[col] ? (r.c[col].v !== undefined ? r.c[col].v : null) : null);
+                const id = getVal(0);
+                const name = getVal(1);
+                if (!id && !name) continue;
+                const pId = String(id || `item-${i + 1}`).trim();
+                const pName = String(name || '').trim();
+                if (!pName) continue;
+
+                const nameEn = String(getVal(2) || pName).trim();
+                const desc = String(getVal(3) || 'ເມນູພິເສດ').trim();
+                const category = String(getVal(4) || 'drinks').trim();
+                const price = Number(getVal(5)) || 0;
+                const badgeText = getVal(6) ? String(getVal(6)).trim() : '';
+                const badgeType = getVal(7) ? String(getVal(7)).trim() : '';
+                let imgUrl = getVal(9) ? String(getVal(9)).trim() : '';
+                const driveLink = getVal(10) ? String(getVal(10)).trim() : '';
+
+                if (!imgUrl && driveLink) {
+                  const match = driveLink.match(/\/d\/([a-zA-Z0-9_-]+)/);
+                  if (match) {
+                    imgUrl = `https://drive.google.com/thumbnail?id=${match[1]}&sz=w800`;
                   }
                 }
-              } catch (e) {}
+
+                items.push({
+                  id: pId,
+                  name: pName,
+                  nameEn: nameEn,
+                  description: desc,
+                  category: category,
+                  price: price,
+                  badge: badgeText ? { text: badgeText, type: badgeType || 'info' } : null,
+                  image: imgUrl || '',
+                  driveViewUrl: driveLink || (imgUrl.includes('/d/') ? `https://drive.google.com/file/d/${imgUrl.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1]}/view` : '')
+                });
+              }
+              if (items.length > 0) {
+                return items;
+              }
             }
-            return data.products;
           }
         } catch (err) {
-          console.warn('Google Sheet Fetch Menu Error:', err);
+          console.warn('Google Sheet fetchMenu gviz error:', err);
         }
+
         return null;
       }
 
@@ -761,7 +915,7 @@
                 .withFailureHandler(() => resolve(null))
                 .getOrdersFromSheet();
             });
-            if (res && res.status === 'success' && Array.isArray(res.orders) && res.orders.length > 0) {
+            if (res && res.status === 'success' && Array.isArray(res.orders)) {
               return res.orders;
             }
           } catch (e) {}
@@ -774,7 +928,7 @@
           try {
             const res = await fetch(`${scriptUrl}?action=get_orders`);
             const data = await res.json();
-            if (data && data.status === 'success' && Array.isArray(data.orders) && data.orders.length > 0) {
+            if (data && data.status === 'success' && Array.isArray(data.orders)) {
               return data.orders;
             }
           } catch (e) {}
@@ -788,9 +942,9 @@
           const jsonStr = rawText.substring(rawText.indexOf('{'), rawText.lastIndexOf('}') + 1);
           if (jsonStr) {
             const parsed = JSON.parse(jsonStr);
-            if (parsed && parsed.table && Array.isArray(parsed.table.rows)) {
+            if (parsed && parsed.table) {
               const orders = [];
-              const rows = parsed.table.rows;
+              const rows = Array.isArray(parsed.table.rows) ? parsed.table.rows : [];
               for (let i = 0; i < rows.length; i++) {
                 const r = rows[i];
                 if (!r || !r.c) continue;
@@ -7814,6 +7968,23 @@
           return syncOrdersRealtime(showToastFeedback);
         };
 
+        // 🔄 Function ສຳລັບກວດສອບການເພີ່ມ/ລົບເມນູສິນຄ້າຈາກ Google Sheet ແບບ Realtime
+        const syncProductsRealtime = async () => {
+          try {
+            const sheetProducts = await fetchProductsFromGoogleSheet();
+            if (sheetProducts && Array.isArray(sheetProducts) && sheetProducts.length > 0) {
+              setProducts((prev) => {
+                const prevSig = prev.map((p) => `${p.id}_${p.name}_${p.price}_${p.image}`).join('|');
+                const newSig = sheetProducts.map((p) => `${p.id}_${p.name}_${p.price}_${p.image}`).join('|');
+                if (prevSig !== newSig) {
+                  return sheetProducts;
+                }
+                return prev;
+              });
+            }
+          } catch (e) {}
+        };
+
         useEffect(() => {
           checkGeoPermission().then((st) => setPermState(st));
           // ດຶງລາຍການເມນູຫຼ້າສຸດຈາກ Google Sheet & Drive ອັດຕະໂນມັດ ເມື່ອເປີດແອັບ
@@ -7834,6 +8005,7 @@
         useEffect(() => {
           // ດຶງຄັ້ງທຳອິດທັນທີ
           syncOrdersRealtime(false);
+          syncProductsRealtime();
 
           // ຄວາມຖີ່: ຖ້າຢູ່ໜ້າປະຫວັດບິນ ຫຼື Dashboard ໃຫ້ດຶງທຸກໆ 6 ວິນາທີ; ຖ້າຢູ່ໜ້າອື່ນດຶງທຸກໆ 15 ວິນາທີ
           const pollInterval = (activeTab === 'order-history' || activeTab === 'sales-dashboard') ? 6000 : 15000;
@@ -7842,6 +8014,7 @@
             // ດຶງສະເພາະເມື່ອໜ້າຈໍຍັງເປີດຢູ່ (Visible) ເພື່ອປະຢັດແບັດເຕີຣີ ແລະ ເນັດ
             if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
               syncOrdersRealtime(false);
+              syncProductsRealtime();
             }
           }, pollInterval);
 
@@ -7849,6 +8022,7 @@
           const handleVisibilityOrFocus = () => {
             if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
               syncOrdersRealtime(false);
+              syncProductsRealtime();
             }
           };
 
@@ -7860,7 +8034,7 @@
             document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
             window.removeEventListener('focus', handleVisibilityOrFocus);
           };
-        }, [activeTab, products]);
+        }, [activeTab]);
 
         const triggerBrowserPermissionPrompt = async () => {
           return new Promise((resolve) => {
@@ -8017,6 +8191,7 @@
         const handleDeleteProduct = (productId) => {
           setProducts((prev) => {
             const next = prev.filter((p) => p.id !== productId);
+            deleteProductFromGoogleSheet(productId);
             syncProductsToGoogleSheet(next);
             return next;
           });
@@ -8028,6 +8203,7 @@
             }
             return prev;
           });
+          showToast('ລຶບເມນູສິນຄ້າອອກຈາກລະບົບ ແລະ Google Sheet ແລ້ວ 🗑️', 'info');
         };
 
         const handleReloadMenuFromSheetAction = async () => {
@@ -8205,6 +8381,8 @@
                       return;
                     }
                     setOrders((prev) => prev.filter((o) => o.id !== id));
+                    deleteOrderFromGoogleSheet(id);
+                    showToast(`ລຶບບິນ ${id} ອອກຈາກແອັບ ແລະ Google Sheet ແລ້ວ 🗑️`, 'info');
                   }}
                   onClearAllOrders={() => {
                     if (!isOwnerUnlocked) {
@@ -8213,6 +8391,8 @@
                       return;
                     }
                     setOrders([]);
+                    clearAllOrdersFromGoogleSheet();
+                    showToast('ລຶບປະຫວັດບິນທັງໝົດໃນ Google Sheet ຮຽບຮ້ອຍແລ້ວ 🗑️', 'info');
                   }}
                   onToggleOrderStatus={handleToggleOrderStatus}
                   profile={profile}

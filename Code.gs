@@ -448,6 +448,18 @@ function doGet(e) {
       return jsonResponse(getOrdersFromSheet());
     }
 
+    if (e.parameter.action === 'delete_order' && e.parameter.orderId) {
+      return jsonResponse(deleteOrderFromClient(e.parameter.orderId));
+    }
+
+    if (e.parameter.action === 'clear_all_orders') {
+      return jsonResponse(clearAllOrdersFromClient());
+    }
+
+    if ((e.parameter.action === 'delete_product' || e.parameter.action === 'deleteProduct') && e.parameter.productId) {
+      return jsonResponse(deleteProductFromClient(e.parameter.productId));
+    }
+
     // ດຶງ ແລະ ຈັບຄູ່ຮູບຈາກ Google Drive ໂຟນເດີ "order app" ມາໃສ່ເມນູໃນ Sheet
     if (e.parameter.action === 'sync_drive_images' || e.parameter.action === 'sync_images') {
       return jsonResponse(syncDriveImagesToSheet());
@@ -595,6 +607,17 @@ function doPost(e) {
     if (payload.action === 'save_order' || payload.action === 'saveOrder' || payload.items || payload.order) {
       const order = payload.order || payload;
       return jsonResponse(saveOrderFromClient(order));
+    }
+
+    // 7. ລຶບບິນ
+    if (payload.action === 'delete_order' || payload.action === 'deleteOrder') {
+      return jsonResponse(deleteOrderFromClient(payload.orderId));
+    }
+    if (payload.action === 'clear_all_orders' || payload.action === 'clearOrders') {
+      return jsonResponse(clearAllOrdersFromClient());
+    }
+    if (payload.action === 'delete_product' || payload.action === 'deleteProduct') {
+      return jsonResponse(deleteProductFromClient(payload.productId));
     }
 
     return jsonResponse({ status: 'error', message: 'Unknown or unsupported action: ' + payload.action });
@@ -1145,6 +1168,84 @@ function updateOrderStatusFromClient(orderId, newStatus) {
     }
 
     return { status: 'success', message: 'Status updated', updated: updated };
+  } catch (err) {
+    return { status: 'error', message: err.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * 🗑️ Function ລຶບບິນ 1 ລາຍການອອກຈາກ Sheet "Orders"
+ */
+function deleteOrderFromClient(orderId) {
+  const lock = LockService.getScriptLock();
+  lock.tryLock(15000);
+
+  try {
+    const ss = getTargetSpreadsheet();
+    const sheet = ss.getSheetByName('Orders');
+    if (!sheet) return { status: 'error', message: 'Sheet Orders not found' };
+
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).trim() === String(orderId).trim()) {
+        sheet.deleteRow(i + 1);
+        return { status: 'success', message: 'Order deleted from Google Sheet', orderId: orderId };
+      }
+    }
+    return { status: 'not_found', message: 'Order ID not found: ' + orderId };
+  } catch (err) {
+    return { status: 'error', message: err.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * 🗑️ Function ລຶບປະຫວັດບິນທັງໝົດອອກຈາກ Sheet "Orders"
+ */
+function clearAllOrdersFromClient() {
+  const lock = LockService.getScriptLock();
+  lock.tryLock(15000);
+
+  try {
+    const ss = getTargetSpreadsheet();
+    const sheet = ss.getSheetByName('Orders');
+    if (!sheet) return { status: 'error', message: 'Sheet Orders not found' };
+
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      sheet.deleteRows(2, lastRow - 1);
+    }
+    return { status: 'success', message: 'All orders cleared from Google Sheet' };
+  } catch (err) {
+    return { status: 'error', message: err.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * 🗑️ Function ລຶບເມນູ 1 ລາຍການອອກຈາກ Sheet "Menu"
+ */
+function deleteProductFromClient(productId) {
+  const lock = LockService.getScriptLock();
+  lock.tryLock(15000);
+
+  try {
+    const ss = getTargetSpreadsheet();
+    const sheet = ss.getSheetByName('Menu');
+    if (!sheet) return { status: 'error', message: 'Sheet Menu not found' };
+
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).trim() === String(productId).trim() || String(data[i][1]).trim() === String(productId).trim()) {
+        sheet.deleteRow(i + 1);
+        return { status: 'success', message: 'Product deleted from Google Sheet', productId: productId };
+      }
+    }
+    return { status: 'not_found', message: 'Product not found: ' + productId };
   } catch (err) {
     return { status: 'error', message: err.toString() };
   } finally {
