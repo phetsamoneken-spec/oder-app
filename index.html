@@ -750,6 +750,162 @@
         return null;
       }
 
+      // Helper function ສຳລັບດຶງປະຫວັດບິນທັງໝົດຈາກ Google Sheet ເພື່ອໃຫ້ທຸກເຄື່ອງເຫັນບິນຕົງກັນ
+      async function fetchOrdersFromGoogleSheet(customScriptUrl, existingProducts = []) {
+        // 1. ຖ້າ Run ຢູ່ພາຍໃນ Google Apps Script Web App (HtmlService)
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          try {
+            const res = await new Promise((resolve) => {
+              google.script.run
+                .withSuccessHandler((r) => resolve(r))
+                .withFailureHandler(() => resolve(null))
+                .getOrdersFromSheet();
+            });
+            if (res && res.status === 'success' && Array.isArray(res.orders) && res.orders.length > 0) {
+              return res.orders;
+            }
+          } catch (e) {}
+        }
+
+        const scriptUrl = getActiveGasUrl(customScriptUrl);
+
+        // 2. ຖ້າ Run ຜ່ານ Apps Script API
+        if (scriptUrl) {
+          try {
+            const res = await fetch(`${scriptUrl}?action=get_orders`);
+            const data = await res.json();
+            if (data && data.status === 'success' && Array.isArray(data.orders) && data.orders.length > 0) {
+              return data.orders;
+            }
+          } catch (e) {}
+        }
+
+        // 3. Fallback: ດຶງໂດຍກົງຈາກ Google Sheet Visualization API (ຮອງຮັບ 100% ທຸກອຸປະກອນໂດຍບໍ່ຕ້ອງ Deploy ໃໝ່)
+        try {
+          const gvizUrl = `https://docs.google.com/spreadsheets/d/${TARGET_SHEET_ID}/gviz/tq?tqx=out:json&sheet=Orders&t=${Date.now()}`;
+          const res = await fetch(gvizUrl);
+          const rawText = await res.text();
+          const jsonStr = rawText.substring(rawText.indexOf('{'), rawText.lastIndexOf('}') + 1);
+          if (jsonStr) {
+            const parsed = JSON.parse(jsonStr);
+            if (parsed && parsed.table && Array.isArray(parsed.table.rows)) {
+              const orders = [];
+              const rows = parsed.table.rows;
+              for (let i = 0; i < rows.length; i++) {
+                const r = rows[i];
+                if (!r || !r.c) continue;
+                const getVal = (col) => (r.c[col] ? (r.c[col].v !== undefined ? r.c[col].v : null) : null);
+                const orderId = getVal(0);
+                if (!orderId || String(orderId).trim() === '') continue;
+
+                const rawCreatedAt = getVal(1);
+                let createdAt = new Date().toISOString();
+                if (rawCreatedAt) {
+                  try {
+                    const d = new Date(rawCreatedAt);
+                    if (!isNaN(d.getTime())) createdAt = d.toISOString();
+                    else createdAt = String(rawCreatedAt);
+                  } catch (e) {
+                    createdAt = String(rawCreatedAt);
+                  }
+                }
+
+                const customerName = String(getVal(2) || 'ລູກຄ້າທົ່ວໄປ');
+                const customerPhone = String(getVal(3) || '');
+                const itemsText = String(getVal(4) || '');
+                const totalQty = Number(getVal(5)) || 1;
+                const subtotal = Number(getVal(6)) || Number(getVal(8)) || 0;
+                const discount = Number(getVal(7)) || 0;
+                const total = Number(getVal(8)) || subtotal;
+                const cashGiven = Number(getVal(9)) || 0;
+                const change = Number(getVal(10)) || 0;
+                const rawStatus = String(getVal(11) || 'pending');
+                const dispatchMode = String(getVal(12) || 'group');
+                const notes = String(getVal(13) || '');
+                const mapLink = String(getVal(14) || '');
+                const storePhoto = String(getVal(15) || '');
+
+                let status = 'pending';
+                let collectorName = '';
+                if (rawStatus.toLowerCase().includes('delivered') || rawStatus.includes('ສົ່ງແລ້ວ') || rawStatus.includes('ສຳເລັດ')) {
+                  status = 'delivered';
+                }
+                const matchCollector = rawStatus.match(/\((.*?)\)/);
+                if (matchCollector) {
+                  collectorName = matchCollector[1].replace(/\(.*?\)/g, '').trim();
+                }
+
+                const items = [];
+                if (itemsText) {
+                  const parts = itemsText.split(',');
+                  for (let p = 0; p < parts.length; p++) {
+                    const trimmed = parts[p].trim();
+                    if (!trimmed) continue;
+                    const match = trimmed.match(/^(.*?)\s*\((\d+)\)$/);
+                    let pName = trimmed;
+                    let pQty = 1;
+                    if (match) {
+                      pName = match[1].trim();
+                      pQty = parseInt(match[2], 10) || 1;
+                    }
+                    const matchedProd = Array.isArray(existingProducts)
+                      ? existingProducts.find(
+                          (x) => x.name === pName || (x.name && pName && (x.name.includes(pName) || pName.includes(x.name)))
+                        )
+                      : null;
+                    items.push({
+                      productId: matchedProd ? matchedProd.id : `custom-${p}`,
+                      productName: matchedProd ? matchedProd.name : pName,
+                      productNameEn: matchedProd ? matchedProd.nameEn || '' : '',
+                      category: matchedProd ? matchedProd.category || 'drinks' : 'drinks',
+                      quantity: pQty,
+                      unitPrice: matchedProd ? matchedProd.price : Math.round(total / (totalQty || 1)),
+                    });
+                  }
+                }
+
+                let location = null;
+                if (mapLink) {
+                  const m = mapLink.match(/q=([-\d.]+),([-\d.]+)/);
+                  if (m) {
+                    location = { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+                  }
+                }
+
+                orders.push({
+                  id: String(orderId),
+                  createdAt: createdAt,
+                  customerName: customerName,
+                  customerPhone: customerPhone,
+                  items: items.length > 0 ? items : [{ productId: 'item-custom', productName: itemsText || 'ສິນຄ້າ', quantity: totalQty, unitPrice: total }],
+                  totalQty: totalQty,
+                  subtotal: subtotal,
+                  discount: discount,
+                  total: total,
+                  cashGiven: cashGiven,
+                  change: change,
+                  status: status,
+                  collectorName: collectorName,
+                  dispatchMode: dispatchMode,
+                  notes: notes,
+                  location: location,
+                  mapLink: mapLink,
+                  storePhoto: storePhoto && storePhoto !== 'ບໍ່ມີຮູບ' ? storePhoto : null,
+                  syncedToSheet: true,
+                });
+              }
+
+              orders.reverse();
+              return orders;
+            }
+          }
+        } catch (err) {
+          console.warn('Google Sheet fetchOrders error:', err);
+        }
+
+        return null;
+      }
+
       let synth = null;
       async function unlockAudio() {
         try {
@@ -5769,6 +5925,8 @@
         onShowToast,
         isOwnerUnlocked = false,
         onOpenOwnerAuth,
+        onRefreshOrders,
+        isRefreshingOrders = false,
       }) => {
         const [showClearConfirm, setShowClearConfirm] = useState(false);
         const [orderToDelete, setOrderToDelete] = useState(null);
@@ -6130,6 +6288,17 @@
               <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
+                  onClick={onRefreshOrders}
+                  disabled={isRefreshingOrders}
+                  className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-[#006c49] border border-emerald-300 font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-2xs active:scale-95 transition-all disabled:opacity-60"
+                  title="ດຶງປະຫວັດບິນຫຼ້າສຸດຈາກ Google Sheet"
+                >
+                  <span className={`material-symbols-outlined text-[16px] ${isRefreshingOrders ? 'animate-spin' : ''}`}>sync</span>
+                  <span>{isRefreshingOrders ? 'ກຳລັງຊິ້ງ...' : 'ຊິ້ງບິນ Sheet'}</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => {
                     if (!isOwnerUnlocked) {
                       vibrateSoft(15);
@@ -6225,6 +6394,17 @@
                 </div>
                 <h3 className="font-display font-bold text-[18px] text-[#131b2e]">ຍັງບໍ່ມີປະຫວັດບິນ</h3>
                 <p className="text-[13px] text-[#3c4a42]">ເມື່ອມີການສັ່ງຊື້ ບິນຈະມາສະແດງຢູ່ບ່ອນນີ້</p>
+                {onRefreshOrders && (
+                  <button
+                    type="button"
+                    onClick={onRefreshOrders}
+                    disabled={isRefreshingOrders}
+                    className="mt-2 px-5 py-2.5 bg-[#006c49] hover:bg-[#005236] text-white font-bold text-xs rounded-xl flex items-center gap-2 shadow-sm active:scale-95 transition-all disabled:opacity-60"
+                  >
+                    <span className={`material-symbols-outlined text-[18px] ${isRefreshingOrders ? 'animate-spin' : ''}`}>sync</span>
+                    <span>{isRefreshingOrders ? 'ກຳລັງດຶງຂໍ້ມູນ...' : '🔄 ດຶງປະຫວັດບິນຈາກ Google Sheet'}</span>
+                  </button>
+                )}
               </div>
             ) : (
               <div className="flex flex-col gap-3.5">
@@ -7577,6 +7757,31 @@
           showToast('ລັອກລະບົບເຈົ້າຂອງຮ້ານ ແລະ ເຊື່ອງປຸ່ມແກ້ໄຂຮຽບຮ້ອຍ 🔒', 'info');
         };
 
+        const [isSyncingOrders, setIsSyncingOrders] = useState(false);
+
+        const handleReloadOrdersFromSheet = async (showToastFeedback = true) => {
+          setIsSyncingOrders(true);
+          try {
+            const sheetOrders = await fetchOrdersFromGoogleSheet(undefined, products);
+            if (sheetOrders && Array.isArray(sheetOrders)) {
+              setOrders(sheetOrders);
+              if (showToastFeedback) {
+                showToast(`ດຶງປະຫວັດບິນຈາກ Google Sheet ສຳເລັດ ${sheetOrders.length} ບິນ! 📋`, 'success');
+              }
+              return sheetOrders;
+            } else if (showToastFeedback) {
+              showToast('ບໍ່ພົບປະຫວັດບິນໃໝ່ໃນ Google Sheet', 'info');
+            }
+          } catch (e) {
+            if (showToastFeedback) {
+              showToast('ເກີດຂໍ້ຜິດພາດໃນການດຶງປະຫວັດບິນ', 'error');
+            }
+          } finally {
+            setIsSyncingOrders(false);
+          }
+          return null;
+        };
+
         useEffect(() => {
           checkGeoPermission().then((st) => setPermState(st));
           // ດຶງລາຍການເມນູຫຼ້າສຸດຈາກ Google Sheet & Drive ອັດຕະໂນມັດ ເມື່ອເປີດແອັບ
@@ -7591,7 +7796,23 @@
               setCashiers(sheetCashiers);
             }
           });
+          // ດຶງປະຫວັດບິນຫຼ້າສຸດຈາກ Google Sheet ອັດຕະໂນມັດ ເພື່ອໃຫ້ທຸກເຄື່ອງເຫັນບິນຕົງກັນ
+          fetchOrdersFromGoogleSheet(undefined, products).then((sheetOrders) => {
+            if (sheetOrders && Array.isArray(sheetOrders) && sheetOrders.length > 0) {
+              setOrders(sheetOrders);
+            }
+          });
         }, []);
+
+        useEffect(() => {
+          if (activeTab === 'order-history') {
+            fetchOrdersFromGoogleSheet(undefined, products).then((sheetOrders) => {
+              if (sheetOrders && Array.isArray(sheetOrders) && sheetOrders.length > 0) {
+                setOrders(sheetOrders);
+              }
+            });
+          }
+        }, [activeTab]);
 
         const triggerBrowserPermissionPrompt = async () => {
           return new Promise((resolve) => {
@@ -7694,6 +7915,9 @@
           syncOrderToGoogleSheet(newOrder).then((res) => {
             if (res.success) {
               showToast(`ບັນທຶກລົງ Google Sheet ສຳເລັດ!`, 'success');
+              setTimeout(() => {
+                handleReloadOrdersFromSheet(false);
+              }, 1200);
             }
           });
         };
@@ -7776,10 +8000,11 @@
           vibrateSoft(20);
           showToast(`ກຳລັງອັບເດດເມນູ ແລະ ຂໍ້ມູນຫຼ້າສຸດຈາກ Google Sheet & Drive... ☁️`, 'info');
           try {
-            // ດຶງເມນູ ແລະ ລາຍຊື່ພະນັກງານຫຼ້າສຸດຈາກ Google Sheet
-            const [sheetProducts, sheetCashiers] = await Promise.all([
+            // ດຶງເມນູ, ລາຍຊື່ພະນັກງານ ແລະ ປະຫວັດບິນຫຼ້າສຸດຈາກ Google Sheet
+            const [sheetProducts, sheetCashiers, sheetOrders] = await Promise.all([
               fetchProductsFromGoogleSheet(),
               fetchCashiersFromGoogleSheet(),
+              fetchOrdersFromGoogleSheet(undefined, products),
             ]);
             let updated = false;
             if (sheetProducts && Array.isArray(sheetProducts) && sheetProducts.length > 0) {
@@ -7790,11 +8015,11 @@
               setCashiers(sheetCashiers);
               updated = true;
             }
-            // ຊິ້ງອໍເດີທັງໝົດຂຶ້ນ Sheet
-            for (const o of orders) {
-              await syncOrderToGoogleSheet(o);
+            if (sheetOrders && Array.isArray(sheetOrders) && sheetOrders.length > 0) {
+              setOrders(sheetOrders);
+              updated = true;
             }
-            showToast(updated ? 'ອັບເດດເມນູ ແລະ ຮູບພາບຫຼ້າສຸດສຳເລັດ! 🎉' : 'ເຊື່ອມຕໍ່ Google Sheet ຮຽບຮ້ອຍ', 'success');
+            showToast(updated ? 'ອັບເດດເມນູ, ຄົນເກັບເງິນ ແລະ ປະຫວັດບິນຫຼ້າສຸດສຳເລັດ! 🎉' : 'ເຊື່ອມຕໍ່ Google Sheet ຮຽບຮ້ອຍ', 'success');
           } catch (e) {
             showToast('ເກີດຂໍ້ຜິດພາດໃນການອັບເດດຂໍ້ມູນ', 'error');
           }
@@ -7951,6 +8176,8 @@
                     vibrateSoft(15);
                     setIsOwnerAuthModalOpen(true);
                   }}
+                  onRefreshOrders={() => handleReloadOrdersFromSheet(true)}
+                  isRefreshingOrders={isSyncingOrders}
                 />
               )}
               {activeTab === 'catalog-settings' && (

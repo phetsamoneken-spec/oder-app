@@ -444,6 +444,10 @@ function doGet(e) {
       return jsonResponse(getCashiersFromSheet());
     }
 
+    if (e.parameter.action === 'get_orders' || e.parameter.action === 'get_history') {
+      return jsonResponse(getOrdersFromSheet());
+    }
+
     // ດຶງ ແລະ ຈັບຄູ່ຮູບຈາກ Google Drive ໂຟນເດີ "order app" ມາໃສ່ເມນູໃນ Sheet
     if (e.parameter.action === 'sync_drive_images' || e.parameter.action === 'sync_images') {
       return jsonResponse(syncDriveImagesToSheet());
@@ -561,6 +565,9 @@ function doPost(e) {
     }
     if (payload.action === 'get_cashiers') {
       return jsonResponse(getCashiersFromSheet());
+    }
+    if (payload.action === 'get_orders' || payload.action === 'get_history') {
+      return jsonResponse(getOrdersFromSheet());
     }
 
     // ດຶງ ແລະ ຈັບຄູ່ຮູບຈາກ Google Drive ໂຟນເດີ "order app" ມາໃສ່ເມນູໃນ Sheet
@@ -1142,6 +1149,121 @@ function updateOrderStatusFromClient(orderId, newStatus) {
     return { status: 'error', message: err.toString() };
   } finally {
     lock.releaseLock();
+  }
+}
+
+/**
+ * 📦 Function ອ່ານລາຍການປະຫວັດບິນທັງໝົດຈາກ Sheet "Orders"
+ */
+function getOrdersFromSheet() {
+  try {
+    const ss = getTargetSpreadsheet();
+    const sheet = ss.getSheetByName('Orders');
+    if (!sheet) return { status: 'success', orders: [], count: 0 };
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return { status: 'success', orders: [], count: 0 };
+
+    const orders = [];
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const id = String(row[0] || '').trim();
+      if (!id) continue;
+
+      const rawCreatedAt = row[1];
+      let createdAt = new Date().toISOString();
+      if (rawCreatedAt) {
+        try {
+          const d = new Date(rawCreatedAt);
+          if (!isNaN(d.getTime())) createdAt = d.toISOString();
+          else createdAt = String(rawCreatedAt);
+        } catch (e) {
+          createdAt = String(rawCreatedAt);
+        }
+      }
+
+      const customerName = String(row[2] || 'ລູກຄ້າທົ່ວໄປ');
+      const customerPhone = String(row[3] || '');
+      const itemsText = String(row[4] || '');
+      const totalQty = Number(row[5]) || 1;
+      const subtotal = Number(row[6]) || Number(row[8]) || 0;
+      const discount = Number(row[7]) || 0;
+      const total = Number(row[8]) || subtotal;
+      const cashGiven = Number(row[9]) || 0;
+      const change = Number(row[10]) || 0;
+      const rawStatus = String(row[11] || 'pending');
+      const dispatchMode = String(row[12] || 'group');
+      const notes = String(row[13] || '');
+      const mapLink = String(row[14] || '');
+      const photoUrl = String(row[15] || '');
+
+      let status = 'pending';
+      let collectorName = '';
+      if (rawStatus.toLowerCase().includes('delivered') || rawStatus.includes('ສົ່ງແລ້ວ') || rawStatus.includes('ສຳເລັດ')) {
+        status = 'delivered';
+      }
+      const matchCollector = rawStatus.match(/\((.*?)\)/);
+      if (matchCollector) {
+        collectorName = matchCollector[1].replace(/\(.*?\)/g, '').trim();
+      }
+
+      const items = [];
+      if (itemsText) {
+        const parts = itemsText.split(',');
+        for (let p = 0; p < parts.length; p++) {
+          const trimmed = parts[p].trim();
+          if (!trimmed) continue;
+          const match = trimmed.match(/^(.*?)\s*\((\d+)\)$/);
+          let pName = trimmed;
+          let pQty = 1;
+          if (match) {
+            pName = match[1].trim();
+            pQty = parseInt(match[2], 10) || 1;
+          }
+          items.push({
+            productId: 'custom-' + p,
+            productName: pName,
+            quantity: pQty,
+            unitPrice: Math.round(total / (totalQty || 1))
+          });
+        }
+      }
+
+      let location = null;
+      if (mapLink) {
+        const m = mapLink.match(/q=([-\d.]+),([-\d.]+)/);
+        if (m) {
+          location = { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+        }
+      }
+
+      orders.push({
+        id: id,
+        createdAt: createdAt,
+        customerName: customerName,
+        customerPhone: customerPhone,
+        items: items.length > 0 ? items : [{ productId: 'item-custom', productName: itemsText || 'ສິນຄ້າ', quantity: totalQty, unitPrice: total }],
+        totalQty: totalQty,
+        subtotal: subtotal,
+        discount: discount,
+        total: total,
+        cashGiven: cashGiven,
+        change: change,
+        status: status,
+        collectorName: collectorName,
+        dispatchMode: dispatchMode,
+        notes: notes,
+        location: location,
+        mapLink: mapLink,
+        storePhoto: photoUrl && photoUrl !== 'ບໍ່ມີຮູບ' ? photoUrl : null,
+        syncedToSheet: true
+      });
+    }
+
+    orders.reverse();
+    return { status: 'success', orders: orders, count: orders.length };
+  } catch (err) {
+    return { status: 'error', message: err.toString(), orders: [], count: 0 };
   }
 }
 
