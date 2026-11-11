@@ -929,6 +929,8 @@
               synth.triggerAttackRelease('C5', '0.04');
             } else if (type === 'success') {
               synth.triggerAttackRelease(['E5', 'G5', 'C6'], '0.12');
+            } else if (type === 'order') {
+              synth.triggerAttackRelease(['C5', 'E5', 'G5', 'C6'], '0.15');
             } else if (type === 'delete') {
               synth.triggerAttackRelease('A3', '0.08');
             }
@@ -6282,7 +6284,16 @@
                 <h1 className="font-display font-black text-[24px] text-[#006c49] leading-tight">
                   ປະຫວັດບິນ
                 </h1>
-                <p className="text-[12px] text-[#3c4a42]">ທັງໝົດ {orders.length} ບິນສັ່ງຊື້</p>
+                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                  <p className="text-[12px] text-[#3c4a42]">ທັງໝົດ {orders.length} ບິນສັ່ງຊື້</p>
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-emerald-50 text-[#006c49] text-[10px] font-bold rounded-full border border-emerald-200">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    <span>ອັບເດດອັດຕະໂນມັດ Realtime</span>
+                  </span>
+                </div>
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
@@ -7758,28 +7769,49 @@
         };
 
         const [isSyncingOrders, setIsSyncingOrders] = useState(false);
+        const knownOrderIdsRef = useRef(new Set((orders || []).map((o) => o.id)));
+        const isInitialLoadDoneRef = useRef(false);
 
-        const handleReloadOrdersFromSheet = async (showToastFeedback = true) => {
-          setIsSyncingOrders(true);
+        // 🔄 Function ສຳລັບດຶງປະຫວັດບິນ ແລະ ກວດສອບອໍເດີໃໝ່ແບບ Realtime
+        const syncOrdersRealtime = async (isManual = false) => {
+          if (isManual) setIsSyncingOrders(true);
           try {
             const sheetOrders = await fetchOrdersFromGoogleSheet(undefined, products);
             if (sheetOrders && Array.isArray(sheetOrders)) {
+              // ກວດສອບວ່າມີອໍເດີໃໝ່ເຂົ້າມາຫຼືບໍ່ (ສຳລັບແຈ້ງເຕືອນສຽງ ແລະ toast)
+              if (isInitialLoadDoneRef.current) {
+                const newOrders = sheetOrders.filter((o) => !knownOrderIdsRef.current.has(o.id));
+                if (newOrders.length > 0) {
+                  playFeedbackSound('order');
+                  vibrateSoft(40);
+                  showToast(`🔔 ມີອໍເດີໃໝ່ເຂົ້າມາ ${newOrders.length} ລາຍການ! (${newOrders[0].id})`, 'success');
+                }
+              }
+
+              // ອັບເດດລາຍການ ID ທີ່ຮັບຮູ້ແລ້ວ
+              knownOrderIdsRef.current = new Set(sheetOrders.map((o) => o.id));
+              isInitialLoadDoneRef.current = true;
               setOrders(sheetOrders);
-              if (showToastFeedback) {
+
+              if (isManual) {
                 showToast(`ດຶງປະຫວັດບິນຈາກ Google Sheet ສຳເລັດ ${sheetOrders.length} ບິນ! 📋`, 'success');
               }
               return sheetOrders;
-            } else if (showToastFeedback) {
+            } else if (isManual) {
               showToast('ບໍ່ພົບປະຫວັດບິນໃໝ່ໃນ Google Sheet', 'info');
             }
           } catch (e) {
-            if (showToastFeedback) {
+            if (isManual) {
               showToast('ເກີດຂໍ້ຜິດພາດໃນການດຶງປະຫວັດບິນ', 'error');
             }
           } finally {
-            setIsSyncingOrders(false);
+            if (isManual) setIsSyncingOrders(false);
           }
           return null;
+        };
+
+        const handleReloadOrdersFromSheet = (showToastFeedback = true) => {
+          return syncOrdersRealtime(showToastFeedback);
         };
 
         useEffect(() => {
@@ -7796,23 +7828,39 @@
               setCashiers(sheetCashiers);
             }
           });
-          // ດຶງປະຫວັດບິນຫຼ້າສຸດຈາກ Google Sheet ອັດຕະໂນມັດ ເພື່ອໃຫ້ທຸກເຄື່ອງເຫັນບິນຕົງກັນ
-          fetchOrdersFromGoogleSheet(undefined, products).then((sheetOrders) => {
-            if (sheetOrders && Array.isArray(sheetOrders) && sheetOrders.length > 0) {
-              setOrders(sheetOrders);
-            }
-          });
         }, []);
 
+        // 🔄 Realtime Auto-Sync Polling: ດຶງຂໍ້ມູນອັດຕະໂນມັດ ໂດຍບໍ່ຕ້ອງກົດ refresh ຫຼື ກົດຊິ້ງ
         useEffect(() => {
-          if (activeTab === 'order-history') {
-            fetchOrdersFromGoogleSheet(undefined, products).then((sheetOrders) => {
-              if (sheetOrders && Array.isArray(sheetOrders) && sheetOrders.length > 0) {
-                setOrders(sheetOrders);
-              }
-            });
-          }
-        }, [activeTab]);
+          // ດຶງຄັ້ງທຳອິດທັນທີ
+          syncOrdersRealtime(false);
+
+          // ຄວາມຖີ່: ຖ້າຢູ່ໜ້າປະຫວັດບິນ ຫຼື Dashboard ໃຫ້ດຶງທຸກໆ 6 ວິນາທີ; ຖ້າຢູ່ໜ້າອື່ນດຶງທຸກໆ 15 ວິນາທີ
+          const pollInterval = (activeTab === 'order-history' || activeTab === 'sales-dashboard') ? 6000 : 15000;
+
+          const timer = setInterval(() => {
+            // ດຶງສະເພາະເມື່ອໜ້າຈໍຍັງເປີດຢູ່ (Visible) ເພື່ອປະຢັດແບັດເຕີຣີ ແລະ ເນັດ
+            if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+              syncOrdersRealtime(false);
+            }
+          }, pollInterval);
+
+          // ເມື່ອຜູ້ໃຊ້ກັບເຂົ້າມາເປີດແອັບ (Visibility change ຫຼື Window focus) ໃຫ້ຊິ້ງທັນທີ
+          const handleVisibilityOrFocus = () => {
+            if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+              syncOrdersRealtime(false);
+            }
+          };
+
+          document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+          window.addEventListener('focus', handleVisibilityOrFocus);
+
+          return () => {
+            clearInterval(timer);
+            document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+            window.removeEventListener('focus', handleVisibilityOrFocus);
+          };
+        }, [activeTab, products]);
 
         const triggerBrowserPermissionPrompt = async () => {
           return new Promise((resolve) => {
