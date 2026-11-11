@@ -6135,6 +6135,7 @@
         onShowToast,
         isOwnerUnlocked = false,
         onOpenOwnerAuth,
+        onLockOwner,
         onRefreshOrders,
         isRefreshingOrders = false,
       }) => {
@@ -6487,14 +6488,15 @@
             )}
 
             {/* Top Bar matching design */}
-            <div className="flex items-center justify-between mb-3.5">
-              <div>
-                <h1 className="font-display font-black text-[24px] text-[#006c49] leading-tight">
+            {/* Top Bar matching design */}
+            <div className="flex items-center justify-between gap-3 mb-3.5">
+              <div className="min-w-0">
+                <h1 className="font-display font-black text-[22px] sm:text-[24px] text-[#006c49] leading-tight">
                   ປະຫວັດບິນ
                 </h1>
                 <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                  <p className="text-[12px] text-[#3c4a42]">ທັງໝົດ {orders.length} ບິນສັ່ງຊື້</p>
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-emerald-50 text-[#006c49] text-[10px] font-bold rounded-full border border-emerald-200">
+                  <p className="text-[12px] text-[#3c4a42] font-semibold">ທັງໝົດ {orders.length} ບິນສັ່ງຊື້</p>
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-emerald-50 text-[#006c49] text-[10px] font-bold rounded-full border border-emerald-200 shrink-0">
                     <span className="relative flex h-2 w-2">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
@@ -6504,63 +6506,20 @@
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={onRefreshOrders}
-                  disabled={isRefreshingOrders}
-                  className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-[#006c49] border border-emerald-300 font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-2xs active:scale-95 transition-all disabled:opacity-60"
-                  title="ດຶງປະຫວັດບິນຫຼ້າສຸດຈາກ Google Sheet"
-                >
-                  <span className={`material-symbols-outlined text-[16px] ${isRefreshingOrders ? 'animate-spin' : ''}`}>sync</span>
-                  <span>{isRefreshingOrders ? 'ກຳລັງຊິ້ງ...' : 'ຊິ້ງບິນ Sheet'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!isOwnerUnlocked) {
-                      vibrateSoft(15);
-                      onShowToast('ກະລຸນາປົດລັອກລະຫັດ PIN ເຈົ້າຂອງຮ້ານກ່ອນຈຶ່ງຈະຈັດການລາຍຊື່ຄົນເກັບເງິນໄດ້', 'warning');
-                      onOpenOwnerAuth && onOpenOwnerAuth();
-                      return;
-                    }
-                    vibrateSoft(15);
-                    setIsCashierModalOpen(true);
-                  }}
-                  className="px-3 py-2 bg-white hover:bg-emerald-50 text-[#006c49] border border-emerald-200 font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-2xs active:scale-95 transition-all"
-                  title={isOwnerUnlocked ? "ຈັດການລາຍຊື່ຄົນເກັບເງິນ (ເພີ່ມ, ແກ້ໄຂ, ລຶບ, ໃສ່ຮູບ)" : "ຈັດການຄົນເກັບເງິນ (ສະຫງວນສິດເຈົ້າຂອງຮ້ານ)"}
-                >
-                  <span className="material-symbols-outlined text-[16px]">{isOwnerUnlocked ? 'group' : 'lock'}</span>
-                  <span>ຄົນເກັບເງິນ ({cashiers.length})</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    vibrateSoft();
-                    exportOrdersToCSV(orders);
-                    onShowToast('ດາວໂຫຼດ CSV ສຳເລັດແລ້ວ', 'success');
-                  }}
-                  className="px-3 py-2 bg-[#006c49] hover:bg-[#005236] text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
-                >
-                  <span className="material-symbols-outlined text-[16px]">download</span>
-                  <span>CSV</span>
-                </button>
-
-                <a
-                  href={GOOGLE_SHEET_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3 py-2 bg-[#0f9d58] hover:bg-[#0c8046] text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
-                >
-                  <span className="material-symbols-outlined text-[16px]">open_in_new</span>
-                  <span>Google Sheet</span>
-                </a>
-              </div>
+              {/* Quick Sync Button */}
+              <button
+                type="button"
+                onClick={onRefreshOrders}
+                disabled={isRefreshingOrders}
+                className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-[#006c49] border border-emerald-300 font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-2xs active:scale-95 transition-all shrink-0 disabled:opacity-60"
+                title="ດຶງປະຫວັດບິນຫຼ້າສຸດຈາກ Google Sheet"
+              >
+                <span className={`material-symbols-outlined text-[16px] ${isRefreshingOrders ? 'animate-spin' : ''}`}>sync</span>
+                <span>{isRefreshingOrders ? 'ກຳລັງຊິ້ງ...' : 'ຊິ້ງບິນ'}</span>
+              </button>
             </div>
 
-            {/* Owner Security Status Banner */}
+            {/* Owner Security Status Banner & Action Controls */}
             {!isOwnerUnlocked ? (
               <div className="flex items-center justify-between gap-2.5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/90 rounded-2xl p-2.5 sm:p-3 mb-3.5 shadow-2xs">
                 <div className="flex items-center gap-2.5 min-w-0">
@@ -6572,7 +6531,7 @@
                       ໂໝດທົ່ວໄປ (ລັອກການແກ້ໄຂ / ລຶບບິນ)
                     </span>
                     <span className="text-[11px] text-amber-700 block truncate">
-                      ສະເພາະເຈົ້າຂອງຮ້ານເທົ່ານັ້ນທີ່ສາມາດແກ້ໄຂ ຫຼື ລຶບປະຫວັດບິນໄດ້
+                      ສະເພາະເຈົ້າຂອງຮ້ານເທົ່ານັ້ນທີ່ສາມາດຈັດການ ແລະ ລຶບບິນໄດ້
                     </span>
                   </div>
                 </div>
@@ -6586,23 +6545,79 @@
                 </button>
               </div>
             ) : (
-              <div className="flex items-center justify-between gap-2.5 bg-[#ecfdf5] border border-[#a7f3d0] rounded-2xl p-2.5 sm:p-3 mb-3.5 shadow-2xs">
-                <div className="flex items-center gap-2.5 min-w-0 text-[#006c49]">
-                  <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center text-[#006c49] shrink-0 border border-emerald-200 shadow-2xs">
-                    <span className="material-symbols-outlined text-[18px]">verified_user</span>
+              <div className="mb-3.5 space-y-2.5">
+                {/* Owner Status Banner */}
+                <div className="flex items-center justify-between gap-2.5 bg-[#ecfdf5] border border-[#a7f3d0] rounded-2xl p-2.5 sm:p-3 shadow-2xs">
+                  <div className="flex items-center gap-2.5 min-w-0 text-[#006c49]">
+                    <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center text-[#006c49] shrink-0 border border-emerald-200 shadow-2xs">
+                      <span className="material-symbols-outlined text-[18px]">verified_user</span>
+                    </div>
+                    <div className="min-w-0">
+                      <span className="font-bold text-[#006c49] text-[12px] block leading-tight">
+                        ໂໝດເຈົ້າຂອງຮ້ານ (Owner Mode) 👑
+                      </span>
+                      <span className="text-[11px] text-[#3c4a42] block truncate">
+                        ປົດລັອກແລ້ວ: ທ່ານສາມາດຈັດການຄົນເກັບເງິນ, CSV, Sheet ແລະ ລຶບບິນໄດ້
+                      </span>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <span className="font-bold text-[#006c49] text-[12px] block leading-tight">
-                      ໂໝດເຈົ້າຂອງຮ້ານ (Owner Mode) 👑
+                  {onLockOwner ? (
+                    <button
+                      type="button"
+                      onClick={onLockOwner}
+                      className="px-2.5 py-1.5 bg-white hover:bg-gray-100 text-gray-700 font-bold text-[11px] rounded-xl border border-gray-200 shrink-0 flex items-center gap-1 shadow-2xs active:scale-95 transition-all"
+                      title="ກົດເພື່ອປິດລັອກລະບົບເຈົ້າຂອງຮ້ານ"
+                    >
+                      <span className="material-symbols-outlined text-[13px]">lock</span>
+                      <span>ປິດລັອກ</span>
+                    </button>
+                  ) : (
+                    <span className="text-[11px] font-bold text-[#006c49] bg-white px-2.5 py-1 rounded-xl border border-emerald-200 shrink-0">
+                      ປົດລັອກແລ້ວ
                     </span>
-                    <span className="text-[11px] text-[#3c4a42] block truncate">
-                      ທ່ານສາມາດແກ້ໄຂສະຖານະ, ແກ້ໄຂຄົນເກັບເງິນ, ແລະ ລຶບບິນໄດ້ແລ້ວ
-                    </span>
-                  </div>
+                  )}
                 </div>
-                <span className="text-[11px] font-bold text-[#006c49] bg-white px-2.5 py-1 rounded-xl border border-emerald-200 shrink-0">
-                  ປົດລັອກແລ້ວ
-                </span>
+
+                {/* Neatly Organized Owner Action Buttons (Clean 3-Column Grid) */}
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      vibrateSoft(15);
+                      setIsCashierModalOpen(true);
+                    }}
+                    className="py-2.5 px-2 bg-white hover:bg-emerald-50 text-[#006c49] border border-emerald-200 font-bold text-[11px] sm:text-xs rounded-2xl flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 transition-all truncate"
+                    title="ຈັດການລາຍຊື່ຄົນເກັບເງິນ (ເພີ່ມ, ແກ້ໄຂ, ລຶບ, ໃສ່ຮູບ)"
+                  >
+                    <span className="material-symbols-outlined text-[17px] shrink-0">group</span>
+                    <span className="truncate">ຄົນເກັບເງິນ ({cashiers.length})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      vibrateSoft();
+                      exportOrdersToCSV(orders);
+                      onShowToast('ດາວໂຫຼດ CSV ສຳເລັດແລ້ວ', 'success');
+                    }}
+                    className="py-2.5 px-2 bg-white hover:bg-emerald-50 text-[#006c49] border border-emerald-200 font-bold text-[11px] sm:text-xs rounded-2xl flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 transition-all truncate"
+                    title="ດາວໂຫຼດປະຫວັດບິນເປັນໄຟລ໌ CSV Excel"
+                  >
+                    <span className="material-symbols-outlined text-[17px] shrink-0">download</span>
+                    <span className="truncate">ດາວໂຫຼດ CSV</span>
+                  </button>
+
+                  <a
+                    href={GOOGLE_SHEET_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="py-2.5 px-2 bg-[#006c49] hover:bg-[#005236] text-white font-bold text-[11px] sm:text-xs rounded-2xl flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 transition-all truncate"
+                    title="ເປີດຕາຕະລາງ Google Sheet ຕົວຈິງ"
+                  >
+                    <span className="material-symbols-outlined text-[17px] shrink-0">open_in_new</span>
+                    <span className="truncate">Google Sheet</span>
+                  </a>
+                </div>
               </div>
             )}
 
@@ -8490,6 +8505,7 @@
                     vibrateSoft(15);
                     setIsOwnerAuthModalOpen(true);
                   }}
+                  onLockOwner={handleLockOwner}
                   onRefreshOrders={() => handleReloadOrdersFromSheet(true)}
                   isRefreshingOrders={isSyncingOrders}
                 />
